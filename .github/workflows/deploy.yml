@@ -1,72 +1,49 @@
-name: Deploy static app to EC2 (push-only app/, nginx, port 80 + no-cache)
+name: Deploy static app to EC2
 
 on:
   push:
-    branches: ["main"]
-
-concurrency:
-  group: deploy-main
-  cancel-in-progress: true
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     env:
-      AWS_REGION:us-east-2
-      EC2_KEY_NAME:simple-web-demo-key
+      AWS_REGION: us-east-2
+      EC2_KEY_NAME: simple-web-demo-key   # reusing your existing EC2 key pair
       WEB_ROOT: /opt/ssg-examples/app
       CONF_FILE: /opt/ssg-examples/nginx/99-no-cache.conf
       CONF_SERVER: /opt/ssg-examples/nginx/default.conf
       CONTAINER: ssg-examples
 
     steps:
-      - name: Checkout (shallow)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Detect changed paths
-        id: changes
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            app:
-              - 'app/**'
-            conf:
-              - 'nginx/99-no-cache.conf'
-              - 'nginx/default.conf'
-            workflow:
-              - '.github/workflows/deploy.yml'
-
-      - name: Stop early if nothing relevant changed
-        if: steps.changes.outputs.app != 'true' && steps.changes.outputs.conf != 'true' && steps.changes.outputs.workflow != 'true'
-        run: |
-          echo "No app/ or nginx conf changes; skipping deploy."
-          exit 0
-
-      # ------------------- DEBUG START -------------------
+      # ---- DEBUG: verify secrets actually present, and no session token sneaking in
       - name: Debug AWS secret presence (lengths only)
         run: |
-          echo "AK len: ${#AWS_ACCESS_KEY_ID}"
-          echo "SK len: ${#AWS_SECRET_ACCESS_KEY}"
-          echo "ST len: ${#AWS_SESSION_TOKEN}"
+          echo "AK len: ${#AK}"
+          echo "SK len: ${#SK}"
+          echo "ST len: ${#ST}"
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          AK: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          SK: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ST: ${{ secrets.AWS_SESSION_TOKEN }}
 
-      - name: Direct STS check (use secrets directly, no action yet)
-        id: direct_sts
+      - name: Direct STS check (use secrets directly, no action)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION:us-east-2
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
         run: |
           set -euo pipefail
           aws --version
           aws sts get-caller-identity
-      # ------------------- DEBUG END ---------------------
+      # ---- END DEBUG
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -75,7 +52,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Find EC2 instance/host/SGs
+      - name: Find EC2 instance/host/SGs (by key-name)
         id: ec2
         shell: bash
         run: |
@@ -91,9 +68,11 @@ jobs:
             --query "Reservations[].Instances[].PublicDnsName" --output text)
           SG_IDS=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
             --query "Reservations[].Instances[].SecurityGroups[].GroupId" --output text)
-          echo "instance_id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
-          echo "host=$HOST" >> "$GITHUB_OUTPUT"
-          echo "sg_ids=$SG_IDS" >> "$GITHUB_OUTPUT"
+          {
+            echo "instance_id=$INSTANCE_ID"
+            echo "host=$HOST"
+            echo "sg_ids=$SG_IDS"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Authorize runner IP for SSH (temp)
         id: sshopen
@@ -134,7 +113,7 @@ jobs:
             sudo mkdir -p "$(dirname "${CONF_SERVER}")"
             sudo chown -R "$USER:$USER" /opt/ssg-examples
 
-      - name: Upload nginx/99-no-cache.conf (single file)
+      - name: Upload nginx/99-no-cache.conf
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -144,7 +123,7 @@ jobs:
           target: "${{ env.CONF_FILE }}"
           overwrite: true
 
-      - name: Upload nginx/default.conf (server block)
+      - name: Upload nginx/default.conf
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -154,7 +133,7 @@ jobs:
           target: "${{ env.CONF_SERVER }}"
           overwrite: true
 
-      - name: Upload app/ to server (flatten contents)
+      - name: Upload app/ (flatten)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -164,7 +143,7 @@ jobs:
           target: "${{ env.WEB_ROOT }}/"
           strip_components: 1
 
-      - name: Recreate container (nginx + default.conf + no-cache) and verify
+      - name: Recreate container (nginx + confs) and verify
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -188,9 +167,7 @@ jobs:
 
             sleep 2
             sudo docker exec "${CONTAINER}" nginx -t
-            echo "--- docker ps ---"
-            sudo docker ps --filter "name=${CONTAINER}" --format 'ports={{.Ports}} status={{.Status}}'
-            echo "--- curl inside container ---"
+            sudo docker ps --filter "name=${CONTAINER}"
             sudo docker exec "${CONTAINER}" sh -lc 'wget -qO- http://127.0.0.1/ | head -n 10 || true'
 
       - name: Ensure SG allows TCP/80 (and try to remove 8080)
