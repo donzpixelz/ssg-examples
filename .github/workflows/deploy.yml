@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      AWS_REGION: us-east-2
-      EC2_KEY_NAME: ssg-examples-key
+      AWS_REGION:us-east-2
+      EC2_KEY_NAME:simple-web-demo-key
       WEB_ROOT: /opt/ssg-examples/app
       CONF_FILE: /opt/ssg-examples/nginx/99-no-cache.conf
       CONF_SERVER: /opt/ssg-examples/nginx/default.conf
@@ -61,7 +61,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ env.AWS_REGION }}
+          AWS_REGION:us-east-2
         run: |
           set -euo pipefail
           aws --version
