@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SSG Examples — Don & Lolo</title>
+  <meta name="description" content="Landing page linking to multiple SSG outputs (Jekyll, Hugo, Eleventy, Astro).">
+  <meta name="theme-color" content="#3466cb" />
+
+  <!-- Styles & Fonts -->
+  <link rel="stylesheet" href="css/main.css">
+  <link href="https://fonts.googleapis.com/css2?family=Playball&display=swap" rel="stylesheet">
+
+  <!-- JS -->
+  <script src="js/loaded-at.js" defer></script>
+</head>
+<body>
+<div class="container">
+  <header class="header-outer">
+    <h1>SSG Examples — Don &amp; Lolo 🐾</h1>
+  </header>
+
+  <p class="sub">This EC2-hosted demo serves multiple static-site generators from one Nginx container.</p>
+
+  <h2>Loaded: <time id="page-loaded-at" datetime="">Loading…</time></h2>
+
+  <section class="grid">
+    <a class="card" href="/jekyll/">
+      <div class="pill">/jekyll</div>
+      <div class="title">Jekyll</div>
+      <p class="desc">Build your Jekyll site and copy the output into <code class="inline">app/jekyll/</code>.</p>
+      <span class="btn">Open Jekyll ➜</span>
+    </a>
+
+    <a class="card" href="/hugo/">
+      <div class="pill">/hugo</div>
+      <div class="title">Hugo</div>
+      <p class="desc">Place the Hugo <em>public</em> build in <code class="inline">app/hugo/</code>.</p>
+      <span class="btn">Open Hugo ➜</span>
+    </a>
+
+    <a class="card" href="/eleventy/">
+      <div class="pill">/eleventy</div>
+      <div class="title">Eleventy (11ty)</div>
+      <p class="desc">Copy the generated site into <code class="inline">app/eleventy/</code>.</p>
+      <span class="btn">Open Eleventy ➜</span>
+    </a>
+
+    <a class="card" href="/astro/">
+      <div class="pill">/astro</div>
+      <div class="title">Astro</div>
+      <p class="desc">Export your static build to <code class="inline">app/astro/</code>.</p>
+      <span class="btn">Open Astro ➜</span>
+    </a>
+  </section>
+
+  <section class="dev">
+    <h2>Dev helpers</h2>
+    <p>After editing files under <code class="inline">app/</code>, use:</p>
+    <p><code class="inline">./deploy-app.sh</code> — push only app/ changes</p>
+    <p><code class="inline">./deploy-app-pr.sh</code> — create a PR with app/ changes</p>
+  </section>
+
+  <footer class="footer-outer">
+    <h1>POOFY-RED!</h1>
+  </footer>
+</div>
+</body>
+</html>

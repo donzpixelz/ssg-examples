@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+*/.terraform/
+crash.log
+terraform.tfvars
+
+# Large backups
+repo-backup.bundle
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# IDE
+.idea/
+
+# Terraform local state
+terraform.tfstate
+terraform.tfstate.*
+terraform/.terraform/
+
+# Keys
+*.pem
+
+# Large backup
+repo-backup.bundle
