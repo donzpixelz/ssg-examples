@@ -1,4 +1,4 @@
-name: Deploy static app to EC2 (push-only app/, stock nginx, port 80 + no-cache)
+name: Deploy static app to EC2 (push-only app/, nginx, port 80 + no-cache)
 
 on:
   push:
@@ -44,6 +44,29 @@ jobs:
         run: |
           echo "No app/ or nginx conf changes; skipping deploy."
           exit 0
+
+      # ------------------- DEBUG START -------------------
+      - name: Debug AWS secret presence (lengths only)
+        run: |
+          echo "AK len: ${#AWS_ACCESS_KEY_ID}"
+          echo "SK len: ${#AWS_SECRET_ACCESS_KEY}"
+          echo "ST len: ${#AWS_SESSION_TOKEN}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Direct STS check (use secrets directly, no action yet)
+        id: direct_sts
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          aws --version
+          aws sts get-caller-identity
+      # ------------------- DEBUG END ---------------------
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -92,13 +115,11 @@ jobs:
           host: ${{ steps.ec2.outputs.host }}
           username: ec2-user
           key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          # note: 'script' must align with our env values above
           script: |
             set -euxo pipefail
             WEB_ROOT="${{ env.WEB_ROOT }}"
             CONF_FILE="${{ env.CONF_FILE }}"
             CONF_SERVER="${{ env.CONF_SERVER }}"
-
             if ! command -v docker >/dev/null 2>&1; then
               curl -fsSL https://get.docker.com | sh
             fi
@@ -113,7 +134,7 @@ jobs:
             sudo mkdir -p "$(dirname "${CONF_SERVER}")"
             sudo chown -R "$USER:$USER" /opt/ssg-examples
 
-      - name: Upload nginx/99-no-cache.conf (http-level headers)
+      - name: Upload nginx/99-no-cache.conf (single file)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -123,7 +144,7 @@ jobs:
           target: "${{ env.CONF_FILE }}"
           overwrite: true
 
-      - name: Upload nginx/default.conf (server block, multi-site)
+      - name: Upload nginx/default.conf (server block)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -143,7 +164,7 @@ jobs:
           target: "${{ env.WEB_ROOT }}/"
           strip_components: 1
 
-      - name: Recreate container (mount both conf files) and verify (with fallback)
+      - name: Recreate container (nginx + default.conf + no-cache) and verify
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -165,36 +186,14 @@ jobs:
               --restart unless-stopped \
               nginx:alpine
 
-            # Wait briefly; if nginx isn't healthy or keeps restarting, fallback
             sleep 2
-            FALLBACK=0
-            for i in {1..6}; do
-              if sudo docker exec "${CONTAINER}" nginx -t; then
-                break
-              fi
-              if ! sudo docker ps --filter "name=${CONTAINER}" --format '{{.Status}}' | grep -qi 'Up'; then
-                FALLBACK=1; break
-              fi
-              sleep 1
-            done
-            if [ "$FALLBACK" -eq 1 ]; then
-              echo "Custom conf failed; falling back to stock nginx."
-              sudo docker logs --tail 100 "${CONTAINER}" || true
-              sudo docker rm -f "${CONTAINER}" || true
-              sudo docker run -d --name "${CONTAINER}" \
-                -p 80:80 \
-                -v "${WEB_ROOT}":/usr/share/nginx/html:ro \
-                --restart unless-stopped \
-                nginx:alpine
-              sleep 2
-            fi
-
+            sudo docker exec "${CONTAINER}" nginx -t
             echo "--- docker ps ---"
             sudo docker ps --filter "name=${CONTAINER}" --format 'ports={{.Ports}} status={{.Status}}'
             echo "--- curl inside container ---"
             sudo docker exec "${CONTAINER}" sh -lc 'wget -qO- http://127.0.0.1/ | head -n 10 || true'
 
-      - name: Ensure SG allows TCP/80 from 0.0.0.0/0 (and try to remove 8080)
+      - name: Ensure SG allows TCP/80 (and try to remove 8080)
         shell: bash
         run: |
           set -euo pipefail
