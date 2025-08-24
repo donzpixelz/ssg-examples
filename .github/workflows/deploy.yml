@@ -1,4 +1,6 @@
-set -euo pipefail
+name: Deploy (ssg-examples)
+  
+  set -euo pipefail
 
 # Get on a clean, up-to-date main
 git fetch origin
