@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# save — commit ONLY app/ changes on current branch, push, open/print PR
+set -euo pipefail
+cd "$(dirname "$0")"
+
+CURBR="$(git branch --show-current 2>/dev/null || echo)"
+[ -n "$CURBR" ] || { echo "Not in a git repo."; exit 1; }
+
+if [ "$CURBR" = "main" ]; then
+  git fetch origin
+  BR="app-$(date +%Y%m%d-%H%M%S)"
+  echo "ℹ️  You are on main; creating $BR from origin/main"
+  git switch -c "$BR" origin/main
+fi
+
+git add -A -- app/
+if git diff --cached --quiet; then
+  echo "No changes under app/. Nothing to commit."
+  exit 0
+fi
+
+MSG=${1:-"Update app (static content)"}
+git commit -m "$MSG"
+git push -u origin HEAD
+
+if command -v gh >/dev/null 2>&1; then
+  # Create PR if none exists; otherwise show it
+  gh pr view >/dev/null 2>&1 || gh pr create -B main -t "$MSG" -b "Automated via ./save" || true
+  echo "PR URL:"
+  gh pr view --json url -q .url 2>/dev/null || true
+else
+  ORIGIN="$(git remote get-url --push origin)"
+  PAIR="${ORIGIN#git@github.com:}"; PAIR="${PAIR#https://github.com/}"; PAIR="${PAIR%.git}"
+  OWNER="${PAIR%%/*}"; REPO="${PAIR##*/}"
+  BRANCH="$(git branch --show-current)"
+  echo "Open PR in browser:"
+  echo "https://github.com/${OWNER}/${REPO}/compare/main...${BRANCH}?expand=1"
+fi
+
+echo "✅ Pushed branch. Merge the PR in GitHub, then run ./sync"
