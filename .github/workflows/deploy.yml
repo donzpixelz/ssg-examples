@@ -115,7 +115,7 @@ jobs:
           target: "${{ env.WEB_ROOT }}/"
           strip_components: 1
 
-      - name: Recreate container (nginx + confs) and verify
+      - name: Recreate container (free port 80, then run) and verify
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -128,12 +128,33 @@ jobs:
             CONF_SERVER="${{ env.CONF_SERVER }}"
             CONTAINER="${{ env.CONTAINER }}"
 
-            sudo docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
-            sudo docker run -d --name "${CONTAINER}"               -p 80:80               -v "${WEB_ROOT}":/usr/share/nginx/html:ro               -v "${CONF_FILE}":/etc/nginx/conf.d/99-no-cache.conf:ro               -v "${CONF_SERVER}":/etc/nginx/conf.d/default.conf:ro               --restart unless-stopped               nginx:alpine
+            # 1) Free host port 80 (stop any container binding it)
+            USED="$(sudo docker ps --format '{{.ID}} {{.Ports}} {{.Names}}' | awk '/0\.0\.0\.0:80->|:::80->/ {print $1}')"
+            if [ -n "$USED" ]; then
+              echo "Port 80 in use by container(s): $USED — removing…"
+              sudo docker rm -f $USED || true
+            fi
+            # Also stop a host nginx service if present
+            sudo systemctl stop nginx  || true
+            sudo service nginx stop    || true
 
+            # 2) Start fresh container
+            sudo docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
+            sudo docker pull nginx:alpine || true
+            sudo docker run -d --name "${CONTAINER}" \
+              -p 80:80 \
+              -v "${WEB_ROOT}":/usr/share/nginx/html:ro \
+              -v "${CONF_FILE}":/etc/nginx/conf.d/99-no-cache.conf:ro \
+              -v "${CONF_SERVER}":/etc/nginx/conf.d/default.conf:ro \
+              --restart unless-stopped \
+              nginx:alpine
+
+            # 3) Verify
             sleep 2
             sudo docker exec "${CONTAINER}" nginx -t
-            sudo docker ps --filter "name=${CONTAINER}"
+            echo "--- docker ps (name/ports/status) ---"
+            sudo docker ps --filter "name=${CONTAINER}" --format 'name={{.Names}} ports={{.Ports}} status={{.Status}}'
+            echo "--- curl inside container ---"
             sudo docker exec "${CONTAINER}" sh -lc 'wget -qO- http://127.0.0.1/ | head -n 10 || true'
 
       - name: Ensure SG allows TCP/80 (and try to remove 8080)
