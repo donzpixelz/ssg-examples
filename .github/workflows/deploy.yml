@@ -11,11 +11,9 @@ concurrency:
 
 jobs:
   deploy:
-    # Needed for OIDC role assumption + checkout
     permissions:
       id-token: write
       contents: read
-
     runs-on: ubuntu-latest
 
     env:
@@ -75,7 +73,7 @@ jobs:
           done
           echo "runner_ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare server (Docker + paths)
+      - name: Prepare server (Docker + dirs)
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -85,10 +83,7 @@ jobs:
             set -euxo pipefail
             WEB_ROOT="${{ env.WEB_ROOT }}"
             CONF_DIR="${{ env.CONF_DIR }}"
-            CONF_FILE="${{ env.CONF_FILE }}"
-            CONF_SERVER="${{ env.CONF_SERVER }}"
 
-            # Install & start Docker
             if ! command -v docker >/dev/null 2>&1; then
               curl -fsSL https://get.docker.com | sh
             fi
@@ -99,31 +94,42 @@ jobs:
             done
             sudo docker info >/dev/null
 
-            # Ensure correct directories exist
-            sudo mkdir -p "${WEB_ROOT}"
-            sudo mkdir -p "${CONF_DIR}"
-
-            # If someone accidentally created a *file* named 'nginx', fix it
-            if [ -f "${CONF_DIR}" ]; then
-              sudo rm -f "${CONF_DIR}"
-              sudo mkdir -p "${CONF_DIR}"
-            fi
-
-            # If previous runs created directories where files should be, fix them
-            [ -d "${CONF_FILE}" ] && sudo rm -rf "${CONF_FILE}"
-            [ -d "${CONF_SERVER}" ] && sudo rm -rf "${CONF_SERVER}"
-
+            # Ensure directories (and ensure they're directories, not files)
+            if [ -f "${CONF_DIR}" ]; then sudo rm -f "${CONF_DIR}"; fi
+            sudo mkdir -p "${WEB_ROOT}" "${CONF_DIR}"
             sudo chown -R "$USER:$USER" /opt/ssg-examples
 
-      - name: Upload nginx confs (copy into directory)
+      - name: Upload nginx/99-no-cache.conf
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ steps.ec2.outputs.host }}
           username: ec2-user
           key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          source: "nginx/*.conf"
+          source: "nginx/99-no-cache.conf"
           target: "${{ env.CONF_DIR }}/"
           overwrite: true
+
+      - name: Upload nginx/default.conf
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ steps.ec2.outputs.host }}
+          username: ec2-user
+          key: ${{ secrets.AWS_EC2_SSH_KEY }}
+          source: "nginx/default.conf"
+          target: "${{ env.CONF_DIR }}/"
+          overwrite: true
+
+      - name: Verify confs on server (must exist)
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ steps.ec2.outputs.host }}
+          username: ec2-user
+          key: ${{ secrets.AWS_EC2_SSH_KEY }}
+          script: |
+            set -euxo pipefail
+            ls -l "${{ env.CONF_DIR }}"
+            test -f "${{ env.CONF_FILE }}"
+            test -f "${{ env.CONF_SERVER }}"
 
       - name: Upload app/ (flatten)
         uses: appleboy/scp-action@v0.1.7
@@ -157,11 +163,7 @@ jobs:
             sudo systemctl stop nginx  || true
             sudo service nginx stop    || true
 
-            # If paths somehow became directories, reference the files inside them
-            if [ -d "$CONF_FILE" ]; then CONF_FILE="$CONF_FILE/99-no-cache.conf"; fi
-            if [ -d "$CONF_SERVER" ]; then CONF_SERVER="$CONF_SERVER/default.conf"; fi
-
-            # Sanity: both conf files must exist now
+            # Sanity: both conf files must exist
             test -f "$CONF_FILE" || { echo "Missing $CONF_FILE"; exit 1; }
             test -f "$CONF_SERVER" || { echo "Missing $CONF_SERVER"; exit 1; }
 
@@ -221,3 +223,4 @@ jobs:
           set -euo pipefail
           curl -v --retry 4 --retry-connrefused --retry-delay 3 --max-time 20 \
             -fsS "http://${HOST}/?nocache=$(date +%s)" >/dev/null
+
