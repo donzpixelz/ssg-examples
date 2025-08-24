@@ -94,32 +94,23 @@ jobs:
             done
             sudo docker info >/dev/null
 
-            # Ensure directories (and ensure they're directories, not files)
+            # Ensure directories exist and are directories (not files)
             if [ -f "${CONF_DIR}" ]; then sudo rm -f "${CONF_DIR}"; fi
             sudo mkdir -p "${WEB_ROOT}" "${CONF_DIR}"
             sudo chown -R "$USER:$USER" /opt/ssg-examples
 
-      - name: Upload nginx/99-no-cache.conf
+      - name: Upload nginx confs (flatten into CONF_DIR)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ steps.ec2.outputs.host }}
           username: ec2-user
           key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          source: "nginx/99-no-cache.conf"
+          source: "nginx/*.conf"
           target: "${{ env.CONF_DIR }}/"
+          strip_components: 1
           overwrite: true
 
-      - name: Upload nginx/default.conf
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ steps.ec2.outputs.host }}
-          username: ec2-user
-          key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          source: "nginx/default.conf"
-          target: "${{ env.CONF_DIR }}/"
-          overwrite: true
-
-      - name: Verify confs on server (must exist)
+      - name: Verify confs on server (must exist; fix nested path if created)
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -127,9 +118,19 @@ jobs:
           key: ${{ secrets.AWS_EC2_SSH_KEY }}
           script: |
             set -euxo pipefail
-            ls -l "${{ env.CONF_DIR }}"
-            test -f "${{ env.CONF_FILE }}"
-            test -f "${{ env.CONF_SERVER }}"
+            CONF_DIR="${{ env.CONF_DIR }}"
+            CONF_FILE="${{ env.CONF_FILE }}"
+            CONF_SERVER="${{ env.CONF_SERVER }}"
+
+            # If action created a nested 'nginx/' folder inside CONF_DIR, flatten it
+            if [ -d "${CONF_DIR}/nginx" ]; then
+              sudo mv "${CONF_DIR}/nginx/"* "${CONF_DIR}/" || true
+              sudo rmdir "${CONF_DIR}/nginx" || true
+            fi
+
+            ls -l "${CONF_DIR}"
+            test -f "${CONF_FILE}"
+            test -f "${CONF_SERVER}"
 
       - name: Upload app/ (flatten)
         uses: appleboy/scp-action@v0.1.7
@@ -223,4 +224,3 @@ jobs:
           set -euo pipefail
           curl -v --retry 4 --retry-connrefused --retry-delay 3 --max-time 20 \
             -fsS "http://${HOST}/?nocache=$(date +%s)" >/dev/null
-
