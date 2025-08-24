@@ -1,16 +1,4 @@
-name: Deploy (ssg-examples)
-  
-  set -euo pipefail
-
-# Get on a clean, up-to-date main
-git fetch origin
-git switch main 2>/dev/null || git checkout -B main
-git reset --hard origin/main
-
-# Write a valid workflow file (Repo+Name tag discovery; no hardcoded IPs)
-mkdir -p .github/workflows
-cat > .github/workflows/deploy.yml <<'YAML'
-name: Deploy ssg-examples (dynamic by Repo+Name tag)
+name: Deploy ssg-examples
 
 on:
   push:
@@ -116,15 +104,15 @@ jobs:
           host: ${{ steps.ec2.outputs.host }}
           username: ec2-user
           key: ${{ secrets.AWS_EC2_SSH_KEY }}
-        script: |
-          set -euxo pipefail
-          if [ -d "${{ env.CONF_DIR }}/nginx" ]; then
-            sudo mv "${{ env.CONF_DIR }}/nginx/"* "${{ env.CONF_DIR }}/" || true
-            sudo rmdir "${{ env.CONF_DIR }}/nginx" || true
-          fi
-          test -f "${{ env.CONF_FILE }}"
-          test -f "${{ env.CONF_SERVER }}"
-          ls -l "${{ env.CONF_DIR }}"
+          script: |
+            set -euxo pipefail
+            if [ -d "${{ env.CONF_DIR }}/nginx" ]; then
+              sudo mv "${{ env.CONF_DIR }}/nginx/"* "${{ env.CONF_DIR }}/" || true
+              sudo rmdir "${{ env.CONF_DIR }}/nginx" || true
+            fi
+            test -f "${{ env.CONF_FILE }}"
+            test -f "${{ env.CONF_SERVER }}"
+            ls -l "${{ env.CONF_DIR }}"
 
       - name: Upload app/ (flatten)
         uses: appleboy/scp-action@v0.1.7
@@ -176,11 +164,3 @@ jobs:
         run: |
           curl -fsS --retry 4 --retry-connrefused --retry-delay 3 --max-time 20 \
             "http://${{ steps.ec2.outputs.host }}/?nocache=$(date +%s)" >/dev/null
-YAML
-
-# Quick sanity: show the first 10 lines (should start with "name:")
-sed -n '1,10p' .github/workflows/deploy.yml
-
-git add .github/workflows/deploy.yml
-git commit -m "ci: fix deploy.yml (valid YAML, Repo+Name tag discovery)"
-git push origin main
