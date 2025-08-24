@@ -1,69 +1,234 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SSG Examples — Don & Lolo</title>
-  <meta name="description" content="Landing page linking to multiple SSG outputs (Jekyll, Hugo, Eleventy, Astro).">
-  <meta name="theme-color" content="#3466cb" />
+name: Deploy static app to EC2
 
-  <!-- Styles & Fonts -->
-  <link rel="stylesheet" href="css/main.css">
-  <link href="https://fonts.googleapis.com/css2?family=Playball&display=swap" rel="stylesheet">
+on:
+push:
+branches:
+- main
 
-  <!-- JS -->
-  <script src="js/loaded-at.js" defer></script>
-</head>
-<body>
-<div class="container">
-  <header class="header-outer">
-    <h1>SSG Examples — Don &amp; Lolo 🐾</h1>
-  </header>
+concurrency:
+group: deploy-main
+cancel-in-progress: true
 
-  <p class="sub">This EC2-hosted demo serves multiple static-site generators from one Nginx container.</p>
+jobs:
+deploy:
+permissions:
+id-token: write
+contents: read
+runs-on: ubuntu-latest
 
-  <h2>Loaded: <time id="page-loaded-at" datetime="">Loading…</time></h2>
+env:
+AWS_REGION: us-east-2
+# Instance selection now uses the EC2 Name tag instead of key-name:
+EC2_NAME_TAG: ssg-examples
 
-  <section class="grid">
-    <a class="card" href="/jekyll/">
-      <div class="pill">/jekyll</div>
-      <div class="title">Jekyll</div>
-      <p class="desc">Build your Jekyll site and copy the output into <code class="inline">app/jekyll/</code>.</p>
-      <span class="btn">Open Jekyll ➜</span>
-    </a>
+WEB_ROOT: /opt/ssg-examples/app
+CONF_DIR: /opt/ssg-examples/nginx
+CONF_FILE: /opt/ssg-examples/nginx/99-no-cache.conf
+CONF_SERVER: /opt/ssg-examples/nginx/default.conf
+CONTAINER: ssg-examples
 
-    <a class="card" href="/hugo/">
-      <div class="pill">/hugo</div>
-      <div class="title">Hugo</div>
-      <p class="desc">Place the Hugo <em>public</em> build in <code class="inline">app/hugo/</code>.</p>
-      <span class="btn">Open Hugo ➜</span>
-    </a>
+steps:
+- name: Checkout
+uses: actions/checkout@v4
+with:
+fetch-depth: 1
 
-    <a class="card" href="/eleventy/">
-      <div class="pill">/eleventy</div>
-      <div class="title">Eleventy (11ty)</div>
-      <p class="desc">Copy the generated site into <code class="inline">app/eleventy/</code>.</p>
-      <span class="btn">Open Eleventy ➜</span>
-    </a>
+- name: Configure AWS via OIDC (no static keys)
+uses: aws-actions/configure-aws-credentials@v4
+with:
+role-to-assume: arn:aws:iam::953331331353:role/GitHubActions-ssg-examples
+aws-region: ${{ env.AWS_REGION }}
 
-    <a class="card" href="/astro/">
-      <div class="pill">/astro</div>
-      <div class="title">Astro</div>
-      <p class="desc">Export your static build to <code class="inline">app/astro/</code>.</p>
-      <span class="btn">Open Astro ➜</span>
-    </a>
-  </section>
+- name: Find EC2 instance/host/SGs (by Name tag)
+id: ec2
+shell: bash
+run: |
+set -euo pipefail
+# 1) Prefer instances tagged Name = ssg-examples
+INSTANCE_ID=$(aws ec2 describe-instances \
+--filters "Name=tag:Name,Values=${EC2_NAME_TAG}" "Name=instance-state-name,Values=running" \
+--query "Reservations[].Instances[].InstanceId" --output text | head -n1)
 
-  <section class="dev">
-    <h2>Dev helpers</h2>
-    <p>After editing files under <code class="inline">app/</code>, use:</p>
-    <p><code class="inline">./deploy-app.sh</code> — push only app/ changes</p>
-    <p><code class="inline">./deploy-app-pr.sh</code> — create a PR with app/ changes</p>
-  </section>
+if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]]; then
+echo "No running instance with tag Name=${EC2_NAME_TAG} in ${AWS_REGION}"
+exit 1
+fi
 
-  <footer class="footer-outer">
-    <h1>POOPY-RED!</h1>
-  </footer>
-</div>
-</body>
-</html>
+HOST=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+--query "Reservations[].Instances[].PublicDnsName" --output text)
+SG_IDS=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+--query "Reservations[].Instances[].SecurityGroups[].GroupId" --output text)
+
+{
+echo "instance_id=$INSTANCE_ID"
+echo "host=$HOST"
+echo "sg_ids=$SG_IDS"
+} >> "$GITHUB_OUTPUT"
+
+echo "Selected instance: $INSTANCE_ID"
+echo "Public DNS:        $HOST"
+echo "SGs:               $SG_IDS"
+
+- name: Authorize runner IP for SSH (temp)
+id: sshopen
+shell: bash
+run: |
+set -euo pipefail
+RUNNER_IP=$(curl -s https://checkip.amazonaws.com | tr -d '\n')
+for SG in ${{ steps.ec2.outputs.sg_ids }}; do
+aws ec2 authorize-security-group-ingress \
+--group-id "$SG" \
+--ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description=gha-temp}]" \
+|| true
+done
+echo "runner_ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
+
+- name: Prepare server (Docker + dirs)
+uses: appleboy/ssh-action@v1.0.0
+with:
+host: ${{ steps.ec2.outputs.host }}
+username: ec2-user
+key: ${{ secrets.AWS_EC2_SSH_KEY }}
+script: |
+set -euxo pipefail
+WEB_ROOT="${{ env.WEB_ROOT }}"
+CONF_DIR="${{ env.CONF_DIR }}"
+
+if ! command -v docker >/dev/null 2>&1; then
+curl -fsSL https://get.docker.com | sh
+fi
+sudo systemctl start docker || sudo service docker start || true
+for i in {1..10}; do
+sudo docker info >/dev/null 2>&1 && break
+sleep 1
+done
+sudo docker info >/dev/null
+
+# Ensure directories exist and are directories (not files)
+if [ -f "${CONF_DIR}" ]; then sudo rm -f "${CONF_DIR}"; fi
+sudo mkdir -p "${WEB_ROOT}" "${CONF_DIR}"
+sudo chown -R "$USER:$USER" /opt/ssg-examples
+
+- name: Upload nginx confs (flatten into CONF_DIR)
+uses: appleboy/scp-action@v0.1.7
+with:
+host: ${{ steps.ec2.outputs.host }}
+username: ec2-user
+key: ${{ secrets.AWS_EC2_SSH_KEY }}
+source: "nginx/*.conf"
+target: "${{ env.CONF_DIR }}/"
+strip_components: 1
+overwrite: true
+
+- name: Verify confs on server (must exist; fix nested path if created)
+uses: appleboy/ssh-action@v1.0.0
+with:
+host: ${{ steps.ec2.outputs.host }}
+username: ec2-user
+key: ${{ secrets.AWS_EC2_SSH_KEY }}
+script: |
+set -euxo pipefail
+CONF_DIR="${{ env.CONF_DIR }}"
+CONF_FILE="${{ env.CONF_FILE }}"
+CONF_SERVER="${{ env.CONF_SERVER }}"
+
+# If action created a nested 'nginx/' folder inside CONF_DIR, flatten it
+if [ -d "${CONF_DIR}/nginx" ]; then
+sudo mv "${CONF_DIR}/nginx/"* "${CONF_DIR}/" || true
+sudo rmdir "${CONF_DIR}/nginx" || true
+fi
+
+ls -l "${CONF_DIR}"
+test -f "${CONF_FILE}"
+test -f "${CONF_SERVER}"
+
+- name: Upload app/ (flatten)
+uses: appleboy/scp-action@v0.1.7
+with:
+host: ${{ steps.ec2.outputs.host }}
+username: ec2-user
+key: ${{ secrets.AWS_EC2_SSH_KEY }}
+source: "app/**"
+# copy into the directory; strip leading folders from paths
+target: "${{ env.WEB_ROOT }}/"
+strip_components: 1
+
+- name: Recreate container (free :80, mount files) and verify
+uses: appleboy/ssh-action@v1.0.0
+with:
+host: ${{ steps.ec2.outputs.host }}
+username: ec2-user
+key: ${{ secrets.AWS_EC2_SSH_KEY }}
+script: |
+set -euxo pipefail
+WEB_ROOT="${{ env.WEB_ROOT }}"
+CONF_FILE="${{ env.CONF_FILE }}"
+CONF_SERVER="${{ env.CONF_SERVER }}"
+CONTAINER="${{ env.CONTAINER }}"
+
+# Free host port 80 (containers or host nginx)
+USED="$(sudo docker ps --format '{{.ID}} {{.Ports}} {{.Names}}' | awk '/0\.0\.0\.0:80->|:::80->/ {print $1}')"
+if [ -n "$USED" ]; then
+echo "Port 80 in use by container(s): $USED — removing…"
+sudo docker rm -f $USED || true
+fi
+sudo systemctl stop nginx  || true
+sudo service nginx stop    || true
+
+# Sanity: both conf files must exist
+test -f "$CONF_FILE" || { echo "Missing $CONF_FILE"; exit 1; }
+test -f "$CONF_SERVER" || { echo "Missing $CONF_SERVER"; exit 1; }
+
+# Start fresh container
+sudo docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
+sudo docker pull nginx:alpine || true
+sudo docker run -d --name "${CONTAINER}" \
+-p 80:80 \
+-v "${WEB_ROOT}":/usr/share/nginx/html:ro \
+-v "${CONF_FILE}":/etc/nginx/conf.d/99-no-cache.conf:ro \
+-v "${CONF_SERVER}":/etc/nginx/conf.d/default.conf:ro \
+--restart unless-stopped \
+nginx:alpine
+
+# Verify
+sleep 2
+sudo docker exec "${CONTAINER}" nginx -t
+echo "--- docker ps ---"
+sudo docker ps --filter "name=${CONTAINER}" --format 'name={{.Names}} ports={{.Ports}} status={{.Status}}'
+echo "--- curl inside container ---"
+sudo docker exec "${CONTAINER}" sh -lc 'wget -qO- http://127.0.0.1/ | head -n 10 || true'
+
+- name: Ensure SG allows TCP/80 (and try to remove 8080)
+shell: bash
+run: |
+set -euo pipefail
+for SG in ${{ steps.ec2.outputs.sg_ids }}; do
+aws ec2 authorize-security-group-ingress \
+--group-id "$SG" \
+--ip-permissions 'IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=0.0.0.0/0,Description=web-80}]' \
+|| true
+aws ec2 revoke-security-group-ingress \
+--group-id "$SG" \
+--ip-permissions 'IpProtocol=tcp,FromPort=8080,ToPort=8080,IpRanges=[{CidrIp=0.0.0.0/0}]' \
+|| true
+done
+
+- name: Revoke runner IP for SSH (cleanup)
+if: always()
+shell: bash
+run: |
+set -euo pipefail
+RUNNER_IP="${{ steps.sshopen.outputs.runner_ip }}"
+if [[ -n "$RUNNER_IP" ]]; then
+for SG in ${{ steps.ec2.outputs.sg_ids }}; do
+aws ec2 revoke-security-group-ingress \
+--group-id "$SG" \
+--ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description=gha-temp}]" \
+|| true
+done
+fi
+
+- name: Print endpoint
+run: |
+echo "Host: http://${{ steps.ec2.outputs.host }}/"
+echo "Host: http://${{ steps.ec2.outputs.host }}/" >> $GITHUB_STEP_SUMMARY
