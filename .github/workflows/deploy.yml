@@ -5,16 +5,24 @@ on:
     branches:
       - main
 
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
 jobs:
   deploy:
+    # Needed for OIDC role assumption + checkout
     permissions:
       id-token: write
       contents: read
+
     runs-on: ubuntu-latest
+
     env:
       AWS_REGION: us-east-2
       EC2_KEY_NAME: simple-web-demo-key
       WEB_ROOT: /opt/ssg-examples/app
+      CONF_DIR: /opt/ssg-examples/nginx
       CONF_FILE: /opt/ssg-examples/nginx/99-no-cache.conf
       CONF_SERVER: /opt/ssg-examples/nginx/default.conf
       CONTAINER: ssg-examples
@@ -36,13 +44,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          INSTANCE_ID=$(aws ec2 describe-instances             --filters "Name=key-name,Values=${EC2_KEY_NAME}" "Name=instance-state-name,Values=running"             --query "Reservations[].Instances[].InstanceId" --output text | head -n1)
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=key-name,Values=${EC2_KEY_NAME}" "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].InstanceId" --output text | head -n1)
           if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]]; then
             echo "No running instance found with key-name=${EC2_KEY_NAME} in ${AWS_REGION}"
             exit 1
           fi
-          HOST=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID"             --query "Reservations[].Instances[].PublicDnsName" --output text)
-          SG_IDS=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID"             --query "Reservations[].Instances[].SecurityGroups[].GroupId" --output text)
+          HOST=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+            --query "Reservations[].Instances[].PublicDnsName" --output text)
+          SG_IDS=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+            --query "Reservations[].Instances[].SecurityGroups[].GroupId" --output text)
           {
             echo "instance_id=$INSTANCE_ID"
             echo "host=$HOST"
@@ -56,7 +68,10 @@ jobs:
           set -euo pipefail
           RUNNER_IP=$(curl -s https://checkip.amazonaws.com | tr -d '\n')
           for SG in ${{ steps.ec2.outputs.sg_ids }}; do
-            aws ec2 authorize-security-group-ingress               --group-id "$SG"               --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description=gha-temp}]"               || true
+            aws ec2 authorize-security-group-ingress \
+              --group-id "$SG" \
+              --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description=gha-temp}]" \
+              || true
           done
           echo "runner_ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
 
@@ -69,8 +84,11 @@ jobs:
           script: |
             set -euxo pipefail
             WEB_ROOT="${{ env.WEB_ROOT }}"
+            CONF_DIR="${{ env.CONF_DIR }}"
             CONF_FILE="${{ env.CONF_FILE }}"
             CONF_SERVER="${{ env.CONF_SERVER }}"
+
+            # Install & start Docker
             if ! command -v docker >/dev/null 2>&1; then
               curl -fsSL https://get.docker.com | sh
             fi
@@ -80,29 +98,31 @@ jobs:
               sleep 1
             done
             sudo docker info >/dev/null
+
+            # Ensure correct directories exist
             sudo mkdir -p "${WEB_ROOT}"
-            sudo mkdir -p "$(dirname "${CONF_FILE}")"
-            sudo mkdir -p "$(dirname "${CONF_SERVER}")"
+            sudo mkdir -p "${CONF_DIR}"
+
+            # If someone accidentally created a *file* named 'nginx', fix it
+            if [ -f "${CONF_DIR}" ]; then
+              sudo rm -f "${CONF_DIR}"
+              sudo mkdir -p "${CONF_DIR}"
+            fi
+
+            # If previous runs created directories where files should be, fix them
+            [ -d "${CONF_FILE}" ] && sudo rm -rf "${CONF_FILE}"
+            [ -d "${CONF_SERVER}" ] && sudo rm -rf "${CONF_SERVER}"
+
             sudo chown -R "$USER:$USER" /opt/ssg-examples
 
-      - name: Upload nginx/99-no-cache.conf
+      - name: Upload nginx confs (copy into directory)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ steps.ec2.outputs.host }}
           username: ec2-user
           key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          source: "nginx/99-no-cache.conf"
-          target: "${{ env.CONF_FILE }}"
-          overwrite: true
-
-      - name: Upload nginx/default.conf
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ steps.ec2.outputs.host }}
-          username: ec2-user
-          key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          source: "nginx/default.conf"
-          target: "${{ env.CONF_SERVER }}"
+          source: "nginx/*.conf"
+          target: "${{ env.CONF_DIR }}/"
           overwrite: true
 
       - name: Upload app/ (flatten)
@@ -115,7 +135,7 @@ jobs:
           target: "${{ env.WEB_ROOT }}/"
           strip_components: 1
 
-      - name: Recreate container (free port 80, then run) and verify
+      - name: Recreate container (free :80, mount files) and verify
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ steps.ec2.outputs.host }}
@@ -128,17 +148,24 @@ jobs:
             CONF_SERVER="${{ env.CONF_SERVER }}"
             CONTAINER="${{ env.CONTAINER }}"
 
-            # 1) Free host port 80 (stop any container binding it)
+            # Free host port 80 (containers or host nginx)
             USED="$(sudo docker ps --format '{{.ID}} {{.Ports}} {{.Names}}' | awk '/0\.0\.0\.0:80->|:::80->/ {print $1}')"
             if [ -n "$USED" ]; then
               echo "Port 80 in use by container(s): $USED — removing…"
               sudo docker rm -f $USED || true
             fi
-            # Also stop a host nginx service if present
             sudo systemctl stop nginx  || true
             sudo service nginx stop    || true
 
-            # 2) Start fresh container
+            # If paths somehow became directories, reference the files inside them
+            if [ -d "$CONF_FILE" ]; then CONF_FILE="$CONF_FILE/99-no-cache.conf"; fi
+            if [ -d "$CONF_SERVER" ]; then CONF_SERVER="$CONF_SERVER/default.conf"; fi
+
+            # Sanity: both conf files must exist now
+            test -f "$CONF_FILE" || { echo "Missing $CONF_FILE"; exit 1; }
+            test -f "$CONF_SERVER" || { echo "Missing $CONF_SERVER"; exit 1; }
+
+            # Start fresh container
             sudo docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
             sudo docker pull nginx:alpine || true
             sudo docker run -d --name "${CONTAINER}" \
@@ -149,10 +176,10 @@ jobs:
               --restart unless-stopped \
               nginx:alpine
 
-            # 3) Verify
+            # Verify
             sleep 2
             sudo docker exec "${CONTAINER}" nginx -t
-            echo "--- docker ps (name/ports/status) ---"
+            echo "--- docker ps ---"
             sudo docker ps --filter "name=${CONTAINER}" --format 'name={{.Names}} ports={{.Ports}} status={{.Status}}'
             echo "--- curl inside container ---"
             sudo docker exec "${CONTAINER}" sh -lc 'wget -qO- http://127.0.0.1/ | head -n 10 || true'
@@ -162,8 +189,14 @@ jobs:
         run: |
           set -euo pipefail
           for SG in ${{ steps.ec2.outputs.sg_ids }}; do
-            aws ec2 authorize-security-group-ingress               --group-id "$SG"               --ip-permissions 'IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=0.0.0.0/0,Description=web-80}]'               || true
-            aws ec2 revoke-security-group-ingress               --group-id "$SG"               --ip-permissions 'IpProtocol=tcp,FromPort=8080,ToPort=8080,IpRanges=[{CidrIp=0.0.0.0/0}]'               || true
+            aws ec2 authorize-security-group-ingress \
+              --group-id "$SG" \
+              --ip-permissions 'IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=0.0.0.0/0,Description=web-80}]' \
+              || true
+            aws ec2 revoke-security-group-ingress \
+              --group-id "$SG" \
+              --ip-permissions 'IpProtocol=tcp,FromPort=8080,ToPort=8080,IpRanges=[{CidrIp=0.0.0.0/0}]' \
+              || true
           done
 
       - name: Revoke runner IP for SSH (cleanup)
@@ -174,7 +207,10 @@ jobs:
           RUNNER_IP="${{ steps.sshopen.outputs.runner_ip }}"
           if [[ -n "$RUNNER_IP" ]]; then
             for SG in ${{ steps.ec2.outputs.sg_ids }}; do
-              aws ec2 revoke-security-group-ingress                 --group-id "$SG"                 --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description=gha-temp}]"                 || true
+              aws ec2 revoke-security-group-ingress \
+                --group-id "$SG" \
+                --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description=gha-temp}]" \
+                || true
             done
           fi
 
@@ -183,4 +219,5 @@ jobs:
           HOST: ${{ steps.ec2.outputs.host }}
         run: |
           set -euo pipefail
-          curl -v --retry 4 --retry-connrefused --retry-delay 3 --max-time 20             -fsS "http://${HOST}/?nocache=$(date +%s)" >/dev/null
+          curl -v --retry 4 --retry-connrefused --retry-delay 3 --max-time 20 \
+            -fsS "http://${HOST}/?nocache=$(date +%s)" >/dev/null
