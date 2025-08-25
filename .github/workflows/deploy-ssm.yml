@@ -34,7 +34,6 @@ jobs:
           if [ -f pnpm-lock.yaml ]; then echo "pm=pnpm" >> "$GITHUB_OUTPUT";
           elif [ -f yarn.lock ]; then echo "pm=yarn" >> "$GITHUB_OUTPUT";
           else echo "pm=npm" >> "$GITHUB_OUTPUT"; fi
-          echo "Detected PM: $(cat $GITHUB_OUTPUT)"
 
       - name: Build (if package.json has a build script)
         id: build
@@ -52,17 +51,21 @@ jobs:
             echo "did_build=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Choose site output folder
+      - name: Choose site output folder (with root fallback)
         id: outdir
         shell: bash
         run: |
           set -e
-          # Candidate directories in priority order
           for d in dist build out public app site docs; do
             if [ -d "$d" ]; then echo "path=./$d" >> "$GITHUB_OUTPUT"; echo "Using $d"; exit 0; fi
           done
-          echo "No known output dir found. If your build writes elsewhere, create ./dist or ./public." >&2
-          exit 1
+          if [ -f index.html ]; then
+            echo "path=./" >> "$GITHUB_OUTPUT"
+            echo "Using repo root (index.html found)"
+          else
+            echo "No output dir or root index.html. Create ./dist or ./public or add index.html in repo root." >&2
+            exit 1
+          fi
 
       - name: Package static site (tar.gz)
         id: pack
@@ -70,7 +73,20 @@ jobs:
         run: |
           set -e
           mkdir -p artifact
-          tar -C "${{ steps.outdir.outputs.path }}" -czf artifact/site.tgz .
+          OUT="${{ steps.outdir.outputs.path }}"
+          if [ "$OUT" = "./" ]; then
+            tar -czf artifact/site.tgz \
+              --exclude-vcs \
+              --exclude='./.github' \
+              --exclude='./.git' \
+              --exclude='./node_modules' \
+              --exclude='./.*' \
+              --exclude='./*.sh' \
+              --exclude='./README*' \
+              -C . .
+          else
+            tar -C "$OUT" -czf artifact/site.tgz .
+          fi
           echo "path=artifact/site.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Ensure artifacts bucket exists + upload artifact
@@ -81,7 +97,6 @@ jobs:
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           BUCKET="ssg-examples-artifacts-${ACCOUNT_ID}-${AWS_REGION}"
           KEY="${{ env.ARTIFACT_PREFIX }}/${{ github.sha }}.tgz"
-
           if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
             aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION" --create-bucket-configuration LocationConstraint="$AWS_REGION"
             aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
@@ -91,14 +106,15 @@ jobs:
           echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
-      - name: Generate pre-signed URL
+      - name: Presign artifact
+      # shorter id for clarity
         id: presign
         shell: bash
         run: |
           URL="$(aws s3 presign "s3://${{ steps.upload.outputs.bucket }}/${{ steps.upload.outputs.key }}" --expires-in 3600)"
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve Instance ID (and IP for a later smoke-test)
+      - name: Resolve Instance ID + IP
         id: inst
         shell: bash
         run: |
@@ -109,7 +125,7 @@ jobs:
           echo "ip=${IP}"  >> "$GITHUB_OUTPUT"
           echo "Deploying to InstanceId: $IID (IP: $IP)"
 
-      - name: Deploy via SSM (no SSH / auto-detect nginx docroot)
+      - name: Deploy via SSM (diagnostic, no SSH)
         id: ssm
         shell: bash
         run: |
@@ -118,46 +134,85 @@ jobs:
           PRESIGNED="${{ steps.presign.outputs.url }}"
           REMOTE_DIR="${{ env.DEFAULT_REMOTE_DIR }}"
 
+          # Build a verbose script that logs every step on the instance
           cat > run.sh <<'EOS'
-          set -euo pipefail
+          set -Eeuo pipefail
+          LOG="/tmp/ssg-deploy.log"
+          exec > >(tee -a "$LOG") 2>&1
+          echo "=== ssg-examples SSM deploy ==="
+          date -u
+
           PRESIGNED="__PRESIGNED__"
           REMOTE_DIR="__REMOTE_DIR__"
 
-          # Download artifact
+          echo "[1/9] Ensure base tools"
+          if ! command -v curl >/dev/null 2>&1; then
+            if command -v yum >/dev/null 2>&1; then sudo yum -y install curl >/dev/null; fi
+            if command -v dnf >/dev/null 2>&1; then sudo dnf -y install curl >/dev/null; fi
+            if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y >/dev/null && sudo apt-get install -y curl >/dev/null; fi
+          fi
+          if ! command -v tar >/dev/null 2>&1; then
+            if command -v yum >/dev/null 2>&1; then sudo yum -y install tar >/dev/null; fi
+            if command -v dnf >/dev/null 2>&1; then sudo dnf -y install tar >/dev/null; fi
+            if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y >/dev/null && sudo apt-get install -y tar >/dev/null; fi
+          fi
+          if ! command -v rsync >/dev/null 2>&1; then
+            if command -v yum >/dev/null 2>&1; then sudo yum -y install rsync >/dev/null || true; fi
+            if command -v dnf >/dev/null 2>&1; then sudo dnf -y install rsync >/dev/null || true; fi
+            if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y >/dev/null && sudo apt-get install -y rsync >/dev/null || true; fi
+          fi
+
+          echo "[2/9] Download artifact"
           sudo mkdir -p "$REMOTE_DIR"
           TMP="/tmp/site.tgz"
+          echo "Downloading: $PRESIGNED"
           curl -fsSL "$PRESIGNED" -o "$TMP"
+          echo "Download size: $(stat -c%s "$TMP" 2>/dev/null || stat -f%z "$TMP" 2>/dev/null) bytes"
+
+          echo "[3/9] Validate archive"
+          tar -tzf "$TMP" >/dev/null
+
+          echo "[4/9] Unpack to staging"
           TMPDIR="$(mktemp -d)"
           tar -xzf "$TMP" -C "$TMPDIR"
+          echo "Staged files:"
+          (cd "$TMPDIR" && find . -maxdepth 2 -type f | head -n 50)
 
-          # Figure out nginx docroot (first 'root' directive) else fallback
-          DOCROOT="$(sudo nginx -T 2>/dev/null | awk '/^\s*root\s+/ && $0 !~ /#/ {gsub(/;$/,"",$2); print $2; exit}')"
+          echo "[5/9] Detect nginx docroot (if nginx installed)"
+          DOCROOT=""
+          if command -v nginx >/dev/null 2>&1; then
+            DOCROOT="$(sudo nginx -T 2>/dev/null | awk '/^[[:space:]]*root[[:space:]]+/ && $0 !~ /#/ {gsub(/;$/,"",$2); print $2; exit}')"
+          fi
           [ -n "$DOCROOT" ] || DOCROOT="/var/www/html"
+          echo "Using REMOTE_DIR=$REMOTE_DIR  DOCROOT=$DOCROOT"
           sudo mkdir -p "$DOCROOT"
 
-          # Sync to REMOTE_DIR and to DOCROOT (if different)
+          echo "[6/9] Sync to REMOTE_DIR"
           if command -v rsync >/dev/null 2>&1; then
             sudo rsync -a --delete "$TMPDIR"/ "$REMOTE_DIR"/
-            if [ "$DOCROOT" != "$REMOTE_DIR" ]; then
-              sudo rsync -a --delete "$TMPDIR"/ "$DOCROOT"/
-            fi
           else
             sudo rm -rf "$REMOTE_DIR"/*; sudo cp -a "$TMPDIR"/. "$REMOTE_DIR"/
-            if [ "$DOCROOT" != "$REMOTE_DIR" ]; then
+          fi
+
+          echo "[7/9] Sync to DOCROOT (if different)"
+          if [ "$DOCROOT" != "$REMOTE_DIR" ]; then
+            if command -v rsync >/dev/null 2>&1; then
+              sudo rsync -a --delete "$TMPDIR"/ "$DOCROOT"/
+            else
               sudo rm -rf "$DOCROOT"/*; sudo cp -a "$TMPDIR"/. "$DOCROOT"/
             fi
           fi
 
-          sudo rm -rf "$TMPDIR" "$TMP"
+          echo "[8/9] Ownership + reload nginx (best effort)"
           sudo chown -R ec2-user:ec2-user "$REMOTE_DIR" || true
-          sudo chown -R nginx:nginx "$DOCROOT" 2>/dev/null || true
+          if id nginx >/dev/null 2>&1; then sudo chown -R nginx:nginx "$DOCROOT" || true; fi
           sudo systemctl reload nginx 2>/dev/null || true
 
-          echo "REMOTE_DIR_USED=$REMOTE_DIR"
-          echo "DOCROOT_USED=$DOCROOT"
+          echo "[9/9] Cleanup"
+          sudo rm -rf "$TMPDIR" "$TMP"
+          echo "Done."
           EOS
 
-          # Safe substitutions
           safe_url=$(printf '%s' "$PRESIGNED" | sed -e 's/[\/&]/\\&/g')
           sed -i "s|__PRESIGNED__|$safe_url|g" run.sh
           sed -i "s|__REMOTE_DIR__|$REMOTE_DIR|g" run.sh
@@ -169,7 +224,7 @@ jobs:
             "InstanceIds": ["$IID"],
             "Parameters": {
               "commands": ["echo $B64 | base64 -d | sudo bash -s"],
-              "executionTimeout": ["600"],
+              "executionTimeout": ["900"],
               "workingDirectory": ["/home/ec2-user"]
             },
             "Comment": "ssg-examples deploy $GITHUB_SHA"
@@ -179,23 +234,19 @@ jobs:
           CMD_ID=$(aws ssm send-command --cli-input-json file:///tmp/ssm.json --query "Command.CommandId" --output text)
           echo "SSM CommandId: $CMD_ID"
 
-          for i in $(seq 1 30); do
+          # Poll and dump full logs on failure
+          for i in $(seq 1 40); do
             STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text || true)"
             echo "SSM status: $STATUS"
             case "$STATUS" in
-              Success) break ;;
+              Success) exit 0 ;;
               Failed|Cancelled|TimedOut)
-                echo "SSM command $STATUS"
+                echo "=== STDOUT ==="
+                aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text || true
+                echo "=== STDERR ==="
                 aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardErrorContent --output text || true
                 exit 1 ;;
               *) sleep 5 ;;
             esac
           done
-
-      - name: Smoke test (best-effort)
-        if: ${{ steps.inst.outputs.ip != '' }}
-        shell: bash
-        run: |
-          set +e
-          echo "Fetching http://${{ steps.inst.outputs.ip }}/ (best effort):"
-          curl -fsS "http://${{ steps.inst.outputs.ip }}/" | head -n 25 || true
+          echo "SSM command did not finish in time"; exit 1
