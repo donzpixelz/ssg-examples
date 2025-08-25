@@ -5,7 +5,7 @@ on:
 
 env:
   AWS_REGION: us-east-2
-  REMOTE_DIR: /var/www/ssg-examples/site
+  REMOTE_ROOT: /usr/share/nginx/html
   ARTIFACT_PREFIX: ssg-examples/artifacts
 
 permissions:
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy-site:
+  deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -26,7 +26,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           role-session-name: ssg-examples-${{ github.run_id }}
 
-      - name: Validate & package
+      - name: Validate & package ./app
         id: pack
         shell: bash
         run: |
@@ -37,7 +37,7 @@ jobs:
           echo "path=artifact/site.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Ensure bucket & upload
-        id: upload
+        id: up
         shell: bash
         run: |
           set -euo pipefail
@@ -53,12 +53,11 @@ jobs:
           echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
           echo "key=$KEY"       >> "$GITHUB_OUTPUT"
 
-      - name: Presign & instance info to env
-        id: envs
+      - name: Presign & set env
         shell: bash
         run: |
           set -euo pipefail
-          URL="$(aws s3 presign "s3://${{ steps.upload.outputs.bucket }}/${{ steps.upload.outputs.key }}" --expires-in 3600)"
+          URL="$(aws s3 presign "s3://${{ steps.up.outputs.bucket }}/${{ steps.up.outputs.key }}" --expires-in 3600)"
           echo "ARTIFACT_URL=$URL" >> "$GITHUB_ENV"
           echo "INSTANCE_ID=${{ secrets.EC2_INSTANCE_ID }}" >> "$GITHUB_ENV"
 
@@ -67,12 +66,12 @@ jobs:
         run: |
           set -euo pipefail
           AWS_REGION="${AWS_REGION}" \
-          REMOTE_DIR="${REMOTE_DIR}" \
-          ARTIFACT_URL="${ARTIFACT_URL}" \
           INSTANCE_ID="${INSTANCE_ID}" \
+          ARTIFACT_URL="${ARTIFACT_URL}" \
+          REMOTE_ROOT="${REMOTE_ROOT}" \
           bash scripts/deploy-remote.sh
 
-      - name: Print helpful link
+      - name: Helpful link
         if: always()
         shell: bash
         run: |
