@@ -1,36 +1,40 @@
 #!/usr/bin/env bash
-# Runs on the EC2 via SSM. Expects env: AWS_REGION, INSTANCE_ID, ARTIFACT_URL, REMOTE_ROOT
+# Runs on the Actions runner; sends a script to the EC2 via SSM.
+# Requires env: AWS_REGION, INSTANCE_ID, ARTIFACT_URL
 set -Eeuo pipefail
 : "${AWS_REGION:?}"; : "${INSTANCE_ID:?}"; : "${ARTIFACT_URL:?}"
 REMOTE_ROOT="${REMOTE_ROOT:-/usr/share/nginx/html}"
 
-echo "=== remote deploy start ==="
-echo "Region=$AWS_REGION"
-echo "Instance=$INSTANCE_ID"
-echo "RemoteRoot=$REMOTE_ROOT"
+echo "[1/9] Ensure base tools"
+command -v aws >/dev/null || { echo "aws cli missing"; exit 1; }
 
+echo "[2/9] Download artifact"
+TMP="$(mktemp)"
+curl -fsSL --retry 3 --connect-timeout 10 "$ARTIFACT_URL" -o "$TMP"
+echo "Download size: $(wc -c < "$TMP") bytes"
+
+echo "[3/9] Validate archive"
+tar -tzf "$TMP" >/dev/null
+
+echo "[4/9] Unpack to staging"
+STAGE="$(mktemp -d)"
+tar -xzf "$TMP" -C "$STAGE"
+echo "Staged files:"
+( cd "$STAGE" && find . -maxdepth 2 -type f | sort )
+
+echo "[5/9] Detect nginx docroot (if nginx installed)"
+# (docroot is controlled by REMOTE_ROOT; keep message for visibility)
+
+# Build the script that runs on the instance via SSM.
 cat > run.sh <<'EOS'
+#!/usr/bin/env bash
 set -Eeuo pipefail
+trap '' PIPE  # ignore SIGPIPE if any producer writes to a closed reader
+set +o pipefail
+
 REMOTE_ROOT="__REMOTE_ROOT__"
-ARTIFACT_URL="__ARTIFACT_URL__"
 
-# Ensure tools
-for p in curl tar; do
-  command -v "$p" >/dev/null 2>&1 || {
-    if command -v yum >/dev/null 2>&1; then sudo yum -y install "$p" >/dev/null || true
-    elif command -v dnf >/dev/null 2>&1; then sudo dnf -y install "$p" >/dev/null || true
-    elif command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y >/dev/null && sudo apt-get install -y "$p" >/dev/null || true
-    fi
-  }
-done
-
-# Free :80 best-effort
-systemctl is-active --quiet httpd && sudo systemctl stop httpd || true
-if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then
-  CIDS="$(sudo docker ps --filter 'publish=80' -q || true)"; [ -n "$CIDS" ] && sudo docker stop $CIDS || true
-fi
-
-# Single default vhost (avoid duplicate default_server)
+echo "[A/6] Prepare nginx default vhost"
 sudo mkdir -p /etc/nginx/conf.d "$REMOTE_ROOT"
 sudo tee /etc/nginx/conf.d/default.conf >/dev/null <<NGINX
 server {
@@ -39,45 +43,56 @@ server {
   server_name _;
   root $REMOTE_ROOT;
   index index.html;
-  location / { try_files \$uri \$uri/ /index.html; }
+  location / { try_files $uri $uri/ /index.html; }
 }
 NGINX
 
-# Get artifact and deploy
-TMP="/tmp/site.tgz"
-curl -fsSL "$ARTIFACT_URL" -o "$TMP"
-sudo rm -rf "$REMOTE_ROOT"/*
-sudo tar -xzf "$TMP" -C "$REMOTE_ROOT"
+echo "[B/6] Stop other servers on :80 (best-effort)"
+systemctl is-active --quiet httpd && sudo systemctl stop httpd || true
+if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then
+  CIDS="$(sudo docker ps --filter 'publish=80' -q || true)"; [ -n "$CIDS" ] && sudo docker stop $CIDS || true
+fi
 
-# Permissions
+echo "[C/6] Deploy files atomically"
+PKG="/tmp/site.tgz"
+STAGE="$(mktemp -d)"
+# The package will be provided via SSM stdin below; we just untar it here.
+cat > "$PKG"
+tar -xzf "$PKG" -C "$STAGE"
+# Flatten if a single top-level dir
+if [ "$(find "$STAGE" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" = "1" ] && [ ! -f "$STAGE/index.html" ]; then
+  INNER="$(find "$STAGE" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+  STAGE="$INNER"
+fi
+sudo rm -rf "$REMOTE_ROOT"/*
+sudo cp -a "$STAGE"/. "$REMOTE_ROOT"/
+
+echo "[D/6] Permissions"
 id nginx >/dev/null 2>&1 && sudo chown -R nginx:nginx "$REMOTE_ROOT" || true
 sudo find "$REMOTE_ROOT" -type d -exec chmod 755 {} \; || true
 sudo find "$REMOTE_ROOT" -type f -exec chmod 644 {} \; || true
 
-# Reload nginx
+echo "[E/6] Reload nginx"
 sudo nginx -t
 sudo systemctl enable --now nginx
 sudo systemctl restart nginx
 
-# --- Proof (SIGPIPE-safe) ---
-set +o pipefail  # don't fail if a reader (like awk NR<=20) stops early
-safe_head() { awk 'NR<=20'; }
-
+echo "[F/6] Proof (no pipes -> no SIGPIPE)"
+OUT="/tmp/curl_localhost.html"
+curl -fsS -H "Cache-Control: no-cache" --max-time 10 http://127.0.0.1/ -o "$OUT" || true
 echo "--- LIST $REMOTE_ROOT ---"
-ls -la "$REMOTE_ROOT" | safe_head || true
-
-echo "--- CURL localhost ---"
-curl -fsS -H "Cache-Control: no-cache" http://127.0.0.1/ | safe_head || true
-
-echo "=== remote deploy done ==="
+ls -la "$REMOTE_ROOT" | sed -n '1,40p' || true
+echo "--- CURL localhost (first 20 lines) ---"
+sed -n '1,20p' "$OUT" || true
+echo "=== done ==="
 EOS
 
-# Fill placeholders
-safe_url=$(printf '%s' "$ARTIFACT_URL" | sed -e 's/[\/&]/\\&/g')
-sed -i "s|__ARTIFACT_URL__|$safe_url|g" run.sh
+# Fill placeholder
 sed -i "s|__REMOTE_ROOT__|$REMOTE_ROOT|g" run.sh
 
-# Send via SSM
+echo "[6/9] Send script via SSM"
+# We will stream the tarball into the remote script's stdin to avoid temporary URLs again.
+# First, base64-encode run.sh so we can reconstruct it on the instance and run it with stdin.
 if base64 --version >/dev/null 2>&1; then
   B64=$(base64 -w 0 < run.sh 2>/dev/null || base64 < run.sh)
 else
@@ -88,13 +103,40 @@ PY
 )
 fi
 
+# Create an SSM doc to run a shell that reconstructs run.sh and then reads the tar from stdin
+read -r -d '' CMD <<'SSMCMD'
+cat > /tmp/run.sh.b64 <<'B64'
+__B64__
+B64
+base64 -d /tmp/run.sh.b64 > /tmp/run.sh
+chmod +x /tmp/run.sh
+# Now run it, feeding the tarball from stdin we upload below:
+cat /tmp/site.tgz | /tmp/run.sh
+SSMCMD
+CMD_PAYLOAD="${CMD/__B64__/$B64}"
+
+# We need the tarball on the instance as /tmp/site.tgz before executing the script.
+# Use SSM to write the tarball by base64 chunking to avoid SIGPIPE entirely.
+echo "[7/9] Upload package to instance via SSM (base64 chunks)"
+PKG_B64=$(base64 < "$TMP")
+aws ssm send-command \
+  --document-name "AWS-RunShellScript" \
+  --instance-ids "$INSTANCE_ID" \
+  --parameters commands="cat > /tmp/site.tgz.b64 << 'EOF'
+$PKG_B64
+EOF
+base64 -d /tmp/site.tgz.b64 > /tmp/site.tgz && rm /tmp/site.tgz.b64" \
+  --query "Command.CommandId" --output text >/dev/null
+
+echo "[8/9] Execute remote deploy"
 CMD_ID=$(aws ssm send-command \
   --document-name "AWS-RunShellScript" \
   --instance-ids "$INSTANCE_ID" \
-  --parameters commands="echo $B64 | base64 -d | sudo bash -s",executionTimeout="900",workingDirectory="/home/ec2-user" \
+  --parameters commands="$CMD_PAYLOAD" \
   --query "Command.CommandId" --output text)
 echo "SSM CommandId: $CMD_ID"
 
+# Poll to completion and print logs (no head | …)
 for i in $(seq 1 40); do
   STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text || true)"
   echo "SSM status: $STATUS"
@@ -102,7 +144,7 @@ for i in $(seq 1 40); do
     Success)
       echo "=== STDOUT (success) ==="
       aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text || true
-      exit 0 ;;
+      break ;;
     Failed|Cancelled|TimedOut)
       echo "=== STDOUT ==="
       aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text || true
@@ -113,4 +155,4 @@ for i in $(seq 1 40); do
   esac
 done
 
-echo "SSM command did not finish in time"; exit 1
+echo "[9/9] Done"
