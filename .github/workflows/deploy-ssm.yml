@@ -20,7 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
@@ -39,7 +40,7 @@ jobs:
       - name: Compute artifacts bucket
         id: bucket
         run: |
-          ACCOUNT_ID="$(aws sts get-caller-identity --query Account -o text)"
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           echo "name=ssg-examples-artifacts-${ACCOUNT_ID}-${AWS_REGION}" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact to S3
@@ -55,11 +56,15 @@ jobs:
           URL="$(aws s3 presign "s3://${{ steps.bucket.outputs.name }}/${{ steps.upload.outputs.key }}" --expires-in 3600)"
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve Instance ID
+      - name: Resolve Instance ID (and show IP for info)
         id: inst
         run: |
           test -n "${{ secrets.EC2_INSTANCE_ID }}" || { echo "Missing EC2_INSTANCE_ID secret"; exit 1; }
-          echo "iid=${{ secrets.EC2_INSTANCE_ID }}" >> "$GITHUB_OUTPUT"
+          IID="${{ secrets.EC2_INSTANCE_ID }}"
+          IP="$(aws ec2 describe-instances --region "${AWS_REGION}" --instance-ids "$IID" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text || true)"
+          echo "iid=${IID}" >> "$GITHUB_OUTPUT"
+          echo "ip=${IP}"  >> "$GITHUB_OUTPUT"
+          echo "Deploying to InstanceId: $IID (IP: $IP)"
 
       - name: Deploy via SSM (no SSH/port 22)
         run: |
@@ -68,33 +73,40 @@ jobs:
           PRESIGNED="${{ steps.presign.outputs.url }}"
           REMOTE_DIR="${{ env.REMOTE_DIR }}"
 
-          COMMAND=$(cat <<'EOS'
-          set -e
-          sudo mkdir -p "$REMOTE_DIR"
-          TMP="/tmp/site.tgz"
-          curl -fsSL "$PRESIGNED" -o "$TMP"
-          # Clean the target dir so deletes are reflected
-          sudo find "$REMOTE_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          sudo tar -xzf "$TMP" -C "$REMOTE_DIR"
-          sudo rm -f "$TMP"
-          sudo chown -R ec2-user:ec2-user "$REMOTE_DIR"
-          # sudo systemctl reload nginx || true
-          EOS
-          )
+          # Single robust command string executed on the instance
+          CMD="set -euo pipefail; \
+          REMOTE_DIR='${REMOTE_DIR}'; PRESIGNED='${PRESIGNED}'; \
+          sudo mkdir -p \"$REMOTE_DIR\"; \
+          TMP='/tmp/site.tgz'; \
+          curl -fsSL \"$PRESIGNED\" -o \"$TMP\"; \
+          TMPDIR=\"\$(mktemp -d)\"; \
+          tar -xzf \"$TMP\" -C \"\$TMPDIR\"; \
+          if command -v rsync >/dev/null 2>&1; then \
+            sudo rsync -a --delete \"\$TMPDIR\"/ \"\$REMOTE_DIR\"/; \
+          else \
+            sudo rm -rf \"\$REMOTE_DIR\"/*; sudo cp -a \"\$TMPDIR\"/. \"\$REMOTE_DIR\"/; \
+          fi; \
+          sudo rm -rf \"\$TMPDIR\" \"$TMP\"; \
+          sudo chown -R ec2-user:ec2-user \"$REMOTE_DIR\""
 
           CMD_ID=$(aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --instance-ids "$IID" \
-            --parameters commands="$COMMAND",executionTimeout="600",workingDirectory="/home/ec2-user",envVariables="[{\"name\":\"REMOTE_DIR\",\"value\":\"$REMOTE_DIR\"},{\"name\":\"PRESIGNED\",\"value\":\"$PRESIGNED\"}]" \
+            --parameters commands="$CMD",executionTimeout="600",workingDirectory="/home/ec2-user" \
             --comment "ssg-examples deploy $GITHUB_SHA" \
-            --query "Command.CommandId" -o text)
+            --query "Command.CommandId" --output text)
 
+          # Poll for completion
           for i in $(seq 1 30); do
-            STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status -o text || true)"
+            STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text || true)"
             echo "SSM status: $STATUS"
             case "$STATUS" in
               Success) exit 0 ;;
-              Failed|Cancelled|TimedOut) echo "SSM command $STATUS"; aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardErrorContent -o text || true; exit 1 ;;
+              Failed|Cancelled|TimedOut)
+                echo "SSM command $STATUS"
+                aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardErrorContent --output text || true
+                exit 1
+                ;;
               *) sleep 5 ;;
             esac
           done
