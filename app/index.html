@@ -20,7 +20,7 @@
     <h1>SSG Examples — Don &amp; Lolo 🐾</h1>
   </header>
 
-  <p class="sub">flipped - 700,700! This EC2-hosted demo serves multiple static-site generators from one Nginx container.</p>
+  <p class="sub">flipped - 700,707! This EC2-hosted demo serves multiple static-site generators from one Nginx container.</p>
 
   <h2>Loaded: <time id="page-loaded-at" datetime="">Loading…</time></h2>
 
@@ -59,6 +59,10 @@
     <p>After editing files under <code class="inline">app/</code>, use:</p>
     <p><code class="inline">./deploy-app.sh</code> — push only app/ changes</p>
     <p><code class="inline">./deploy-app-pr.sh</code> — create a PR with app/ changes</p>
+    <p>To trigger later:
+      <code class="inline">gh workflow run "Deploy site (/app) via SSM" --repo "donzpixelz/ssg-examples" --ref main</code>
+      <code class="inline">gh workflow run "Deploy entire repo via SSM" --repo "donzpixelz/ssg-examples" --ref main</code>
+      <code class="inline"✅ Done. Open GitHub → Actions. You should see ONE run (the site deploy).</code></p>
   </section>
 
   <footer class="footer-outer">
