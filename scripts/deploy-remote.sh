@@ -9,7 +9,6 @@ echo "Region=$AWS_REGION"
 echo "Instance=$INSTANCE_ID"
 echo "RemoteRoot=$REMOTE_ROOT"
 
-# Build the script that will actually run on the instance
 cat > run.sh <<'EOS'
 set -Eeuo pipefail
 REMOTE_ROOT="__REMOTE_ROOT__"
@@ -31,7 +30,7 @@ if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then
   CIDS="$(sudo docker ps --filter 'publish=80' -q || true)"; [ -n "$CIDS" ] && sudo docker stop $CIDS || true
 fi
 
-# Write a single default vhost to avoid duplicate-default conflicts
+# Single default vhost (avoid duplicate default_server)
 sudo mkdir -p /etc/nginx/conf.d "$REMOTE_ROOT"
 sudo tee /etc/nginx/conf.d/default.conf >/dev/null <<NGINX
 server {
@@ -50,7 +49,7 @@ curl -fsSL "$ARTIFACT_URL" -o "$TMP"
 sudo rm -rf "$REMOTE_ROOT"/*
 sudo tar -xzf "$TMP" -C "$REMOTE_ROOT"
 
-# Permissions (ok to no-op on distros w/o nginx user)
+# Permissions
 id nginx >/dev/null 2>&1 && sudo chown -R nginx:nginx "$REMOTE_ROOT" || true
 sudo find "$REMOTE_ROOT" -type d -exec chmod 755 {} \; || true
 sudo find "$REMOTE_ROOT" -type f -exec chmod 644 {} \; || true
@@ -60,20 +59,25 @@ sudo nginx -t
 sudo systemctl enable --now nginx
 sudo systemctl restart nginx
 
-# Proof
+# --- Proof (SIGPIPE-safe) ---
+set +o pipefail  # don't fail if a reader (like awk NR<=20) stops early
+safe_head() { awk 'NR<=20'; }
+
 echo "--- LIST $REMOTE_ROOT ---"
-ls -la "$REMOTE_ROOT" | head -n 20
+ls -la "$REMOTE_ROOT" | safe_head || true
+
 echo "--- CURL localhost ---"
-curl -fsS -H "Cache-Control: no-cache" http://127.0.0.1/ | head -n 20 || true
+curl -fsS -H "Cache-Control: no-cache" http://127.0.0.1/ | safe_head || true
+
 echo "=== remote deploy done ==="
 EOS
 
-# Fill placeholders safely
+# Fill placeholders
 safe_url=$(printf '%s' "$ARTIFACT_URL" | sed -e 's/[\/&]/\\&/g')
 sed -i "s|__ARTIFACT_URL__|$safe_url|g" run.sh
 sed -i "s|__REMOTE_ROOT__|$REMOTE_ROOT|g" run.sh
 
-# Base64 and send via SSM
+# Send via SSM
 if base64 --version >/dev/null 2>&1; then
   B64=$(base64 -w 0 < run.sh 2>/dev/null || base64 < run.sh)
 else
@@ -91,7 +95,6 @@ CMD_ID=$(aws ssm send-command \
   --query "Command.CommandId" --output text)
 echo "SSM CommandId: $CMD_ID"
 
-# Poll for completion (so the Action logs show the proof)
 for i in $(seq 1 40); do
   STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text || true)"
   echo "SSM status: $STATUS"
