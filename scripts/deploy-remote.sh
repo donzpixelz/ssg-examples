@@ -34,7 +34,7 @@ server {
   server_name _;
   root $REMOTE_ROOT;
   index index.html;
-  location / { try_files $uri $uri/ /index.html; }
+  location / { try_files \$uri \$uri/ /index.html; }
 }
 NGINX
 
