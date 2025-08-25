@@ -1,4 +1,4 @@
-name: Deploy site (/app) via SSM — Diagnose & Fix
+name: Deploy site (/app) via SSM (minimal)
 
 on:
   workflow_dispatch:
@@ -68,7 +68,7 @@ jobs:
           echo "iid=${IID}" >> "$GITHUB_OUTPUT"
           echo "ip=${IP}"  >> "$GITHUB_OUTPUT"
 
-      - name: Deploy via SSM (includes Docker-aware fix + DIAG SUMMARY)
+      - name: Deploy via SSM (copy to common web roots; try Docker)
         id: ssm
         shell: bash
         run: |
@@ -76,143 +76,68 @@ jobs:
           IID="${{ steps.inst.outputs.iid }}"
           PRESIGNED="${{ steps.presign.outputs.url }}"
           REMOTE_DIR="${{ env.REMOTE_DIR }}"
-          PUBIP="${{ steps.inst.outputs.ip }}"
 
           cat > run.sh <<'EOS'
           set -Eeuo pipefail
           LOG="/tmp/ssg-deploy.log"
           exec > >(tee -a "$LOG") 2>&1
-          echo "=== ssg-examples SSM deploy (/app) — Docker-aware ==="; date -u
+          echo "=== ssg-examples SSM deploy (/app) minimal ==="; date -u
 
           PRESIGNED="__PRESIGNED__"
           REMOTE_DIR="__REMOTE_DIR__"
+          ROOTS=("/usr/share/nginx/html" "/var/www/html" "$REMOTE_DIR")
 
-          echo "[1/10] Ensure tools"
-          for pkg in curl tar rsync docker sha256sum; do
-            if [ "$pkg" = "sha256sum" ]; then command -v sha256sum >/dev/null 2>&1 && continue; fi
-            command -v "${pkg%% *}" >/dev/null 2>&1 && continue
-            if command -v yum >/dev/null 2>&1; then sudo yum -y install "${pkg%% *}" >/dev/null || true; fi
-            if command -v dnf >/dev/null 2>&1; then sudo dnf -y install "${pkg%% *}" >/dev/null || true; fi
-            if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y >/dev/null && sudo apt-get install -y "${pkg%% *}" >/dev/null || true; fi
+          # Tools
+          for pkg in curl tar rsync; do
+            if ! command -v "$pkg" >/dev/null 2>&1; then
+              if command -v yum >/dev/null 2>&1; then sudo yum -y install "$pkg" >/dev/null || true; fi
+              if command -v dnf >/dev/null 2>&1; then sudo dnf -y install "$pkg" >/dev/null || true; fi
+              if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y >/dev/null && sudo apt-get install -y "$pkg" >/dev/null || true; fi
+            fi
           done
 
-          echo "[2/10] Download + unpack"
+          # Download and stage
           TMP="/tmp/site.tgz"; curl -fsSL "$PRESIGNED" -o "$TMP"
-          TMPDIR="$(mktemp -d)"; tar -xzf "$TMP" -C "$TMPDIR"
-          NEW_SHA=""; [ -f "$TMPDIR/index.html" ] && NEW_SHA="$(sha256sum "$TMPDIR/index.html" 2>/dev/null | awk '{print $1}')"
-          echo "New index.html sha256: ${NEW_SHA:-<none>}"
-          echo "Staged sample:"; (cd "$TMPDIR" && find . -maxdepth 2 -type f | head -n 40)
+          STAGE="$(mktemp -d)"; tar -xzf "$TMP" -C "$STAGE"
 
-          echo "[3/10] Copy to host docroots"
-          ROOTS=("/usr/share/nginx/html" "/var/www/html" "$REMOTE_DIR")
+          # Copy to host web roots
           for R in "${ROOTS[@]}"; do
             sudo mkdir -p "$R"
             if command -v rsync >/dev/null 2>&1; then
-              sudo rsync -a --delete "$TMPDIR"/ "$R"/
+              sudo rsync -a --delete "$STAGE"/ "$R"/
             else
-              sudo rm -rf "$R"/*; sudo cp -a "$TMPDIR"/. "$R"/
+              sudo rm -rf "$R"/*; sudo cp -a "$STAGE"/. "$R"/
             fi
           done
 
-          echo "[4/10] Detect service on :80"
-          sudo ss -ltnp | grep -E ':80\s' || true
-          LISTENER="$(sudo ss -ltnp | awk '/:80 /{print $7}' | sed 's/users://;s/"//g' | head -n1 || true)"
-          echo "Listener: ${LISTENER:-<none>}"
-
-          echo "[5/10] Docker detection"
-          HAVE_DOCKER="no"
-          if command -v docker >/dev/null 2>&1; then
-            if sudo docker ps >/dev/null 2>&1; then
-              HAVE_DOCKER="yes"
-              echo "Docker running"
-              sudo docker ps --format 'table {{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Ports}}'
-              # Find any container publishing host:80
-              CID="$(sudo docker ps --filter 'publish=80' --format '{{.ID}}' | head -n1 || true)"
-              if [ -n "$CID" ]; then
-                IMG="$(sudo docker inspect -f '{{.Config.Image}}' "$CID" 2>/dev/null || true)"
-                echo "Container on :80 → $CID ($IMG)"
-                # Guess target path inside container
-                TARGET_IN_C="/usr/share/nginx/html"
-                case "$IMG" in
-                  *nginx* ) TARGET_IN_C="/usr/share/nginx/html" ;;
-                  *httpd* ) TARGET_IN_C="/usr/local/apache2/htdocs" ;;
-                esac
-                # If that path doesn't exist, try to discover from mounts
-                if ! sudo docker exec "$CID" test -d "$TARGET_IN_C"; then
-                  echo "Default docroot not present; inspecting mounts"
-                  sudo docker inspect -f '{{json .Mounts}}' "$CID" | python - <<'PY' || true
-import sys,json
-M=json.load(sys.stdin)
-for m in M:
-  src=m.get("Source"); dst=m.get("Destination")
-  if not src or not dst: continue
-  if any(s in dst for s in ["/html","/www","/htdocs","/site"]):
-    print("HOST_MOUNT:"+src)
-    print("CONT_MOUNT:"+dst)
-    break
-PY
-                  HOST_MOUNT="$(sudo docker inspect -f '{{range .Mounts}}{{if or (eq .Destination "/usr/share/nginx/html") (eq .Destination "/usr/local/apache2/htdocs")}}{{.Source}}{{end}}{{end}}' "$CID" 2>/dev/null || true)"
-                  # Fallback: first rw bind mount
-                  [ -z "$HOST_MOUNT" ] && HOST_MOUNT="$(sudo docker inspect -f '{{range .Mounts}}{{if eq .RW true}}{{.Source}}{{break}}{{end}}{{end}}' "$CID" 2>/dev/null || true)"
-                  if [ -n "$HOST_MOUNT" ]; then
-                    echo "Updating host mount: $HOST_MOUNT"
-                    sudo mkdir -p "$HOST_MOUNT"
-                    if command -v rsync >/dev/null 2>&1; then
-                      sudo rsync -a --delete "$TMPDIR"/ "$HOST_MOUNT"/
-                    else
-                      sudo rm -rf "$HOST_MOUNT"/*; sudo cp -a "$TMPDIR"/. "$HOST_MOUNT"/
-                    fi
-                  else
-                    echo "No suitable host mount found; copying into container path $TARGET_IN_C"
-                    sudo docker cp "$TMPDIR"/. "$CID":"$TARGET_IN_C"/
-                  fi
-                else
-                  echo "Copying into container path $TARGET_IN_C"
-                  sudo docker cp "$TMPDIR"/. "$CID":"$TARGET_IN_C"/
+          # If Docker serves :80, try to update inside container
+          if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then
+            CID="$(sudo docker ps --format '{{.ID}} {{.Ports}} {{.Image}}' | awk '/:80->/ {print $1}' | head -n1 || true)"
+            if [ -n "$CID" ]; then
+              # Try common docroots
+              for D in /usr/share/nginx/html /usr/local/apache2/htdocs /var/www/html; do
+                if sudo docker exec "$CID" test -d "$D"; then
+                  echo "Copying into container $CID:$D"
+                  sudo docker cp "$STAGE"/. "$CID":"$D"/ || true
+                  sudo docker exec "$CID" sh -lc 'nginx -s reload 2>/dev/null || apachectl -k graceful 2>/dev/null || true' || true
+                  break
                 fi
-                # Try graceful reloads
-                sudo docker exec "$CID" sh -lc 'nginx -s reload 2>/dev/null || apachectl -k graceful 2>/dev/null || true' || true
-              else
-                echo "No container with host:80 published found."
-              fi
-            else
-              echo "Docker CLI present but daemon not running."
+              done
             fi
-          else
-            echo "Docker not installed."
           fi
 
-          echo "[6/10] Reload host webservers (best effort)"
+          # Reload host services (best effort)
           sudo systemctl reload nginx 2>/dev/null || true
           sudo systemctl reload httpd 2>/dev/null || true
 
-          echo "[7/10] Show current host files (top)"
-          for R in "/usr/share/nginx/html" "/var/www/html" "$REMOTE_DIR"; do
+          # Show what landed
+          for R in "${ROOTS[@]}"; do
             echo "--- $R ---"
             ls -l "$R" | head -n 20 || true
             [ -f "$R/index.html" ] && { echo "index.html head:"; head -n 8 "$R/index.html" || true; }
           done
 
-          echo "[8/10] Compare served vs new (inside instance)"
-          SERVED_SHA="$( (curl -fsS -H 'Cache-Control: no-cache' http://127.0.0.1/ || true) | sha256sum | awk '{print $1}' )"
-          echo "Served sha256 (localhost:80): ${SERVED_SHA:-<none>}"
-          echo "New     sha256 (staged index): ${NEW_SHA:-<none>}"
-          if [ -n "$SERVED_SHA" ] && [ -n "$NEW_SHA" ]; then
-            if [ "$SERVED_SHA" = "$NEW_SHA" ]; then
-              echo "MATCH: localhost is serving the new index.html"
-            else
-              echo "MISMATCH: localhost still serving old content"
-            fi
-          fi
-
-          echo "[9/10] DIAG SUMMARY"
-          echo "Listener: ${LISTENER:-unknown}"
-          if [ "$HAVE_DOCKER" = "yes" ]; then echo "Docker: present"; else echo "Docker: absent"; fi
-          echo "Roots updated: /usr/share/nginx/html | /var/www/html | $REMOTE_DIR"
-          echo "Note: If a container serves :80, files were copied into its docroot or host mount."
-
-          echo "[10/10] Cleanup"
-          sudo rm -rf "$TMPDIR" "$TMP"
+          sudo rm -rf "$STAGE" "$TMP"
           echo "Done."
           EOS
 
@@ -227,35 +152,32 @@ PY
             "InstanceIds": ["$IID"],
             "Parameters": {
               "commands": ["echo $B64 | base64 -d | sudo bash -s"],
-              "executionTimeout": ["1200"],
+              "executionTimeout": ["900"],
               "workingDirectory": ["/home/ec2-user"]
             },
-            "Comment": "ssg-examples deploy DIAG+FIX $GITHUB_SHA"
+            "Comment": "deploy site minimal $GITHUB_SHA"
           }
           JSON
 
           CMD_ID=$(aws ssm send-command --cli-input-json file:///tmp/ssm.json --query "Command.CommandId" --output text)
           echo "SSM CommandId: $CMD_ID"
 
-          # Poll and always dump output on finish
-          for i in $(seq 1 60); do
+          for i in $(seq 1 40); do
             STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text || true)"
             echo "SSM status: $STATUS"
             case "$STATUS" in
-              Success|Failed|Cancelled|TimedOut)
+              Success)
+                echo "=== STDOUT (success) ==="
+                aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text || true
+                exit 0 ;;
+              Failed|Cancelled|TimedOut)
                 echo "=== STDOUT ==="
                 aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text || true
                 echo "=== STDERR ==="
                 aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardErrorContent --output text || true
-                break ;;
+                exit 1 ;;
               *) sleep 5 ;;
             esac
           done
 
-      - name: Outside check from runner (fetch public IP)
-        if: ${{ steps.inst.outputs.ip != '' }}
-        shell: bash
-        run: |
-          set +e
-          echo "Fetching http://${{ steps.inst.outputs.ip }}/ with cache-buster:"
-          curl -fsS -H "Cache-Control: no-cache" "http://${{ steps.inst.outputs.ip }}/?buster=$(date +%s)" | head -n 25 || true
+          echo "SSM command did not finish in time"; exit 1
