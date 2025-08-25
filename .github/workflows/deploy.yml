@@ -1,166 +1,80 @@
-name: Deploy ssg-examples
+name: Deploy static app to EC2 (OIDC + Instance ID)
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
-concurrency:
-  group: deploy-ssg-examples
-  cancel-in-progress: true
+env:
+  AWS_REGION: us-east-2
+  REMOTE_DIR: /var/www/ssg-examples
+  REMOTE_USER: ec2-user
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
-    env:
-      AWS_REGION: us-east-2
-      REPO_TAG: donzpixelz/ssg-examples
-      NAME_TAG: ssg-examples
-      WEB_ROOT: /opt/ssg-examples/app
-      CONF_DIR: /opt/ssg-examples/nginx
-      CONF_FILE: /opt/ssg-examples/nginx/99-no-cache.conf
-      CONF_SERVER: /opt/ssg-examples/nginx/default.conf
-      CONTAINER: ssg-examples
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
-      - name: Configure AWS (OIDC)
+      - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::953331331353:role/GitHubActions-ssg-examples-ssh
           aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: ssg-examples-${{ github.run_id }}
 
-      - name: Find EC2 by Repo+Name tag
-        id: ec2
+      - name: Resolve public IP from EC2_INSTANCE_ID
+        id: host
         shell: bash
         run: |
-          set -euo pipefail
-          IID=$(aws ec2 describe-instances --filters \
-            "Name=tag:Repo,Values=${REPO_TAG}" \
-            "Name=tag:Name,Values=${NAME_TAG}" \
-            "Name=instance-state-name,Values=running" \
-            --query "Reservations[].Instances[].InstanceId" --output text | head -n1)
-          [ -n "$IID" ] && [ "$IID" != "None" ] || { echo "No running instance with Repo=${REPO_TAG} AND Name=${NAME_TAG}"; exit 1; }
-          HOST=$(aws ec2 describe-instances --instance-ids "$IID" \
-            --query "Reservations[].Instances[].PublicDnsName" --output text)
-          SGS=$(aws ec2 describe-instances --instance-ids "$IID" \
-            --query "Reservations[].Instances[].SecurityGroups[].GroupId" --output text)
-          echo "instance_id=$IID" >> "$GITHUB_OUTPUT"
-          echo "host=$HOST" >> "$GITHUB_OUTPUT"
-          echo "sg_ids=$SGS" >> "$GITHUB_OUTPUT"
-          echo "### Deploy target" >> $GITHUB_STEP_SUMMARY
-          echo "$HOST" >> $GITHUB_STEP_SUMMARY
-
-      - name: Allow runner SSH (temp)
-        id: sshopen
-        shell: bash
-        run: |
-          set -euo pipefail
-          IP=$(curl -s https://checkip.amazonaws.com | tr -d '\n')
-          for SG in ${{ steps.ec2.outputs.sg_ids }}; do
-            aws ec2 authorize-security-group-ingress \
-              --group-id "$SG" \
-              --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${IP}/32,Description=gha-temp}]" >/dev/null 2>&1 || true
-          done
-          echo "ip=$IP" >> "$GITHUB_OUTPUT"
-
-      - name: Ensure Docker + dirs
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ steps.ec2.outputs.host }}
-          username: ec2-user
-          key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          script: |
-            set -euxo pipefail
-            command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
-            sudo systemctl start docker || sudo service docker start || true
-            for i in {1..10}; do sudo docker info >/dev/null 2>&1 && break; sleep 1; done
-            [ -f "${{ env.CONF_DIR }}" ] && sudo rm -f "${{ env.CONF_DIR }}" || true
-            sudo mkdir -p "${{ env.WEB_ROOT }}" "${{ env.CONF_DIR }}"
-            sudo chown -R "$USER:$USER" /opt/ssg-examples
-
-      - name: Upload nginx confs
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ steps.ec2.outputs.host }}
-          username: ec2-user
-          key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          source: "nginx/*.conf"
-          target: "${{ env.CONF_DIR }}/"
-          strip_components: 1
-          overwrite: true
-
-      - name: Flatten nginx folder if nested & verify confs
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ steps.ec2.outputs.host }}
-          username: ec2-user
-          key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          script: |
-            set -euxo pipefail
-            if [ -d "${{ env.CONF_DIR }}/nginx" ]; then
-              sudo mv "${{ env.CONF_DIR }}/nginx/"* "${{ env.CONF_DIR }}/" || true
-              sudo rmdir "${{ env.CONF_DIR }}/nginx" || true
-            fi
-            test -f "${{ env.CONF_FILE }}"
-            test -f "${{ env.CONF_SERVER }}"
-            ls -l "${{ env.CONF_DIR }}"
-
-      - name: Upload app/ (flatten)
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ steps.ec2.outputs.host }}
-          username: ec2-user
-          key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          source: "app/**"
-          target: "${{ env.WEB_ROOT }}/"
-          strip_components: 1
-
-      - name: Run container (nginx + mounts)
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ steps.ec2.outputs.host }}
-          username: ec2-user
-          key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          script: |
-            set -euxo pipefail
-            USED="$(sudo docker ps --format '{{.ID}} {{.Ports}}' | awk '/0\.0\.0\.0:80->|:::80->/ {print $1}')"
-            [ -n "$USED" ] && sudo docker rm -f $USED || true
-            sudo systemctl stop nginx || true; sudo service nginx stop || true
-            sudo docker rm -f "${{ env.CONTAINER }}" >/dev/null 2>&1 || true
-            sudo docker pull nginx:alpine || true
-            sudo docker run -d --name "${{ env.CONTAINER }}" \
-              -p 80:80 \
-              -v "${{ env.WEB_ROOT }}":/usr/share/nginx/html:ro \
-              -v "${{ env.CONF_FILE }}":/etc/nginx/conf.d/99-no-cache.conf:ro \
-              -v "${{ env.CONF_SERVER }}":/etc/nginx/conf.d/default.conf:ro \
-              --restart unless-stopped nginx:alpine
-            sleep 2
-            sudo docker exec "${{ env.CONTAINER }}" nginx -t
-            sudo docker ps --filter "name=${{ env.CONTAINER }}" --format 'ports={{.Ports}} status={{.Status}}'
-
-      - name: Revoke runner SSH (cleanup)
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -n "${{ steps.sshopen.outputs.ip }}" ]]; then
-            for SG in ${{ steps.ec2.outputs.sg_ids }}; do
-              aws ec2 revoke-security-group-ingress \
-                --group-id "$SG" \
-                --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${{ steps.sshopen.outputs.ip }}/32,Description=gha-temp}]" >/dev/null 2>&1 || true
-            done
+          test -n "${{ secrets.EC2_INSTANCE_ID }}" || { echo "Missing EC2_INSTANCE_ID secret"; exit 1; }
+          host="$(aws ec2 describe-instances \
+            --region "${AWS_REGION}" \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)"
+          if [ -z "$host" ] || [ "$host" = "None" ]; then
+            echo "Instance has no public IP. Ensure it has one or set up a bastion." >&2
+            exit 1
           fi
+          echo "host=${host}" >> "$GITHUB_OUTPUT"
+          echo "Resolved host: $host"
 
-      - name: Public smoke test
+      - name: Prepare SSH key
+        shell: bash
         run: |
-          curl -fsS --retry 4 --retry-connrefused --retry-delay 3 --max-time 20 \
-            "http://${{ steps.ec2.outputs.host }}/?nocache=$(date +%s)" >/dev/null
+          test -n "${{ secrets.AWS_EC2_SSH_KEY }}" || { echo "Missing AWS_EC2_SSH_KEY secret (PEM private key)"; exit 1; }
+          echo "${{ secrets.AWS_EC2_SSH_KEY }}" > key.pem
+          chmod 600 key.pem
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ steps.host.outputs.host }}" >> ~/.ssh/known_hosts
+
+      # If you build locally to a folder, add that build here (npm/yarn etc.)
+      # - name: Build static site
+      #   run: |
+      #     npm ci
+      #     npm run build
+
+      - name: Deploy files to EC2 (rsync)
+        shell: bash
+        run: |
+          LOCAL_PATH="./public"
+          if [ ! -d "$LOCAL_PATH" ]; then
+            LOCAL_PATH="./app"
+          fi
+          echo "Uploading $LOCAL_PATH -> ${REMOTE_USER}@${{ steps.host.outputs.host }}:${REMOTE_DIR}"
+          ssh -i key.pem "${REMOTE_USER}@${{ steps.host.outputs.host }}" "sudo mkdir -p '${REMOTE_DIR}' && sudo chown -R ${REMOTE_USER}:${REMOTE_USER} '${REMOTE_DIR}'"
+          rsync -az --delete -e "ssh -i key.pem" "${LOCAL_PATH}/" "${REMOTE_USER}@${{ steps.host.outputs.host }}:${REMOTE_DIR}/"
+
+      - name: (optional) Post-deploy hook
+        if: always()
+        run: |
+          # Example: restart nginx
+          # ssh -i key.pem "${REMOTE_USER}@${{ steps.host.outputs.host }}" "sudo systemctl reload nginx"
+          echo "Deployment complete."
