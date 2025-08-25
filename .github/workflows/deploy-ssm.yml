@@ -7,7 +7,7 @@ on:
 
 env:
   AWS_REGION: us-east-2
-  REMOTE_DIR: /var/www/ssg-examples
+  DEFAULT_REMOTE_DIR: /var/www/ssg-examples
   ARTIFACT_PREFIX: ssg-examples/artifacts
 
 permissions:
@@ -27,45 +27,80 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           role-session-name: ssg-examples-${{ github.run_id }}
 
-      - name: Package static site (tar.gz)
-        id: pack
+      - name: Detect package manager
+        id: pm
+        shell: bash
+        run: |
+          if [ -f pnpm-lock.yaml ]; then echo "pm=pnpm" >> "$GITHUB_OUTPUT";
+          elif [ -f yarn.lock ]; then echo "pm=yarn" >> "$GITHUB_OUTPUT";
+          else echo "pm=npm" >> "$GITHUB_OUTPUT"; fi
+          echo "Detected PM: $(cat $GITHUB_OUTPUT)"
+
+      - name: Build (if package.json has a build script)
+        id: build
+        shell: bash
         run: |
           set -e
-          LOCAL_PATH="./public"; [ -d "$LOCAL_PATH" ] || LOCAL_PATH="./app"
-          [ -d "$LOCAL_PATH" ] || { echo "No ./public or ./app to deploy"; exit 1; }
+          if [ -f package.json ] && jq -e '.scripts.build' package.json >/dev/null 2>&1; then
+            case "${{ steps.pm.outputs.pm }}" in
+              pnpm) corepack enable pnpm >/dev/null 2>&1 || true; pnpm i --frozen-lockfile; pnpm build ;;
+              yarn) yarn --frozen-lockfile; yarn build ;;
+              npm)  npm ci; npm run build ;;
+            esac
+            echo "did_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "did_build=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Choose site output folder
+        id: outdir
+        shell: bash
+        run: |
+          set -e
+          # Candidate directories in priority order
+          for d in dist build out public app site docs; do
+            if [ -d "$d" ]; then echo "path=./$d" >> "$GITHUB_OUTPUT"; echo "Using $d"; exit 0; fi
+          done
+          echo "No known output dir found. If your build writes elsewhere, create ./dist or ./public." >&2
+          exit 1
+
+      - name: Package static site (tar.gz)
+        id: pack
+        shell: bash
+        run: |
+          set -e
           mkdir -p artifact
-          tar -C "$LOCAL_PATH" -czf artifact/site.tgz .
+          tar -C "${{ steps.outdir.outputs.path }}" -czf artifact/site.tgz .
           echo "path=artifact/site.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Ensure artifacts bucket exists + upload artifact
         id: upload
+        shell: bash
         run: |
           set -e
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           BUCKET="ssg-examples-artifacts-${ACCOUNT_ID}-${AWS_REGION}"
           KEY="${{ env.ARTIFACT_PREFIX }}/${{ github.sha }}.tgz"
 
-          echo "Using bucket: s3://$BUCKET"
           if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-            echo "Bucket missing; creating…"
             aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION" --create-bucket-configuration LocationConstraint="$AWS_REGION"
             aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
             aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
           fi
-
-          echo "Uploading artifact..."
           aws s3 cp "${{ steps.pack.outputs.path }}" "s3://$BUCKET/$KEY"
           echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
       - name: Generate pre-signed URL
         id: presign
+        shell: bash
         run: |
           URL="$(aws s3 presign "s3://${{ steps.upload.outputs.bucket }}/${{ steps.upload.outputs.key }}" --expires-in 3600)"
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve Instance ID (and show IP for info)
+      - name: Resolve Instance ID (and IP for a later smoke-test)
         id: inst
+        shell: bash
         run: |
           test -n "${{ secrets.EC2_INSTANCE_ID }}" || { echo "Missing EC2_INSTANCE_ID secret"; exit 1; }
           IID="${{ secrets.EC2_INSTANCE_ID }}"
@@ -74,40 +109,60 @@ jobs:
           echo "ip=${IP}"  >> "$GITHUB_OUTPUT"
           echo "Deploying to InstanceId: $IID (IP: $IP)"
 
-      - name: Deploy via SSM (no SSH / no port 22)
+      - name: Deploy via SSM (no SSH / auto-detect nginx docroot)
         id: ssm
+        shell: bash
         run: |
           set -e
           IID="${{ steps.inst.outputs.iid }}"
-          REMOTE_DIR="${{ env.REMOTE_DIR }}"
           PRESIGNED="${{ steps.presign.outputs.url }}"
+          REMOTE_DIR="${{ env.DEFAULT_REMOTE_DIR }}"
 
-          # 1) Build the script to run on the instance
           cat > run.sh <<'EOS'
           set -euo pipefail
-          REMOTE_DIR="__REMOTE_DIR__"
           PRESIGNED="__PRESIGNED__"
+          REMOTE_DIR="__REMOTE_DIR__"
+
+          # Download artifact
           sudo mkdir -p "$REMOTE_DIR"
           TMP="/tmp/site.tgz"
           curl -fsSL "$PRESIGNED" -o "$TMP"
           TMPDIR="$(mktemp -d)"
           tar -xzf "$TMP" -C "$TMPDIR"
+
+          # Figure out nginx docroot (first 'root' directive) else fallback
+          DOCROOT="$(sudo nginx -T 2>/dev/null | awk '/^\s*root\s+/ && $0 !~ /#/ {gsub(/;$/,"",$2); print $2; exit}')"
+          [ -n "$DOCROOT" ] || DOCROOT="/var/www/html"
+          sudo mkdir -p "$DOCROOT"
+
+          # Sync to REMOTE_DIR and to DOCROOT (if different)
           if command -v rsync >/dev/null 2>&1; then
             sudo rsync -a --delete "$TMPDIR"/ "$REMOTE_DIR"/
+            if [ "$DOCROOT" != "$REMOTE_DIR" ]; then
+              sudo rsync -a --delete "$TMPDIR"/ "$DOCROOT"/
+            fi
           else
             sudo rm -rf "$REMOTE_DIR"/*; sudo cp -a "$TMPDIR"/. "$REMOTE_DIR"/
+            if [ "$DOCROOT" != "$REMOTE_DIR" ]; then
+              sudo rm -rf "$DOCROOT"/*; sudo cp -a "$TMPDIR"/. "$DOCROOT"/
+            fi
           fi
+
           sudo rm -rf "$TMPDIR" "$TMP"
-          sudo chown -R ec2-user:ec2-user "$REMOTE_DIR"
+          sudo chown -R ec2-user:ec2-user "$REMOTE_DIR" || true
+          sudo chown -R nginx:nginx "$DOCROOT" 2>/dev/null || true
+          sudo systemctl reload nginx 2>/dev/null || true
+
+          echo "REMOTE_DIR_USED=$REMOTE_DIR"
+          echo "DOCROOT_USED=$DOCROOT"
           EOS
 
-          # 2) Substitute variables safely, then base64 the script
+          # Safe substitutions
           safe_url=$(printf '%s' "$PRESIGNED" | sed -e 's/[\/&]/\\&/g')
-          sed -i "s|__REMOTE_DIR__|$REMOTE_DIR|g" run.sh
           sed -i "s|__PRESIGNED__|$safe_url|g" run.sh
+          sed -i "s|__REMOTE_DIR__|$REMOTE_DIR|g" run.sh
           B64=$(base64 -w 0 < run.sh)
 
-          # 3) Send SSM command using JSON (avoids quoting problems)
           cat > /tmp/ssm.json <<JSON
           {
             "DocumentName": "AWS-RunShellScript",
@@ -122,23 +177,25 @@ jobs:
           JSON
 
           CMD_ID=$(aws ssm send-command --cli-input-json file:///tmp/ssm.json --query "Command.CommandId" --output text)
-          echo "CommandId: $CMD_ID"
+          echo "SSM CommandId: $CMD_ID"
 
-          # 4) Poll for completion
           for i in $(seq 1 30); do
             STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text || true)"
             echo "SSM status: $STATUS"
             case "$STATUS" in
-              Success) exit 0 ;;
+              Success) break ;;
               Failed|Cancelled|TimedOut)
                 echo "SSM command $STATUS"
-                echo "--- STDERR ---"
                 aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardErrorContent --output text || true
-                echo "--- STDOUT ---"
-                aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text || true
-                exit 1
-                ;;
+                exit 1 ;;
               *) sleep 5 ;;
             esac
           done
-          echo "SSM command did not finish in time"; exit 1
+
+      - name: Smoke test (best-effort)
+        if: ${{ steps.inst.outputs.ip != '' }}
+        shell: bash
+        run: |
+          set +e
+          echo "Fetching http://${{ steps.inst.outputs.ip }}/ (best effort):"
+          curl -fsS "http://${{ steps.inst.outputs.ip }}/" | head -n 25 || true
