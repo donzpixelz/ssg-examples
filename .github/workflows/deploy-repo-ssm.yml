@@ -1,0 +1,155 @@
+name: Deploy entire repo via SSM
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-2
+  REMOTE_DIR: /var/www/ssg-examples
+  ARTIFACT_PREFIX: ssg-examples/artifacts
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: ssg-examples-${{ github.run_id }}
+
+      - name: Package repo (exclude junk) (tar.gz)
+        id: pack
+        shell: bash
+        run: |
+          set -e
+          mkdir -p artifact
+          tar -czf artifact/site.tgz \
+            --exclude-vcs \
+            --exclude='./.github' \
+            --exclude='./.git' \
+            --exclude='./node_modules' \
+            --exclude='./.*' \
+            --exclude='./*.sh' \
+            --exclude='./README*' \
+            -C . .
+          echo "path=artifact/site.tgz" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure artifacts bucket exists + upload artifact
+        id: upload
+        shell: bash
+        run: |
+          set -e
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          BUCKET="ssg-examples-artifacts-${ACCOUNT_ID}-${AWS_REGION}"
+          KEY="${{ env.ARTIFACT_PREFIX }}/${{ github.sha }}.tgz"
+          if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION" --create-bucket-configuration LocationConstraint="$AWS_REGION"
+            aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
+            aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+          fi
+          aws s3 cp "${{ steps.pack.outputs.path }}" "s3://$BUCKET/$KEY"
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Presign artifact
+        id: presign
+        shell: bash
+        run: |
+          URL="$(aws s3 presign "s3://${{ steps.upload.outputs.bucket }}/${{ steps.upload.outputs.key }}" --expires-in 3600)"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Instance ID + IP
+        id: inst
+        shell: bash
+        run: |
+          test -n "${{ secrets.EC2_INSTANCE_ID }}" || { echo "Missing EC2_INSTANCE_ID secret"; exit 1; }
+          IID="${{ secrets.EC2_INSTANCE_ID }}"
+          IP="$(aws ec2 describe-instances --region "${AWS_REGION}" --instance-ids "$IID" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text || true)"
+          echo "iid=${IID}" >> "$GITHUB_OUTPUT"
+          echo "ip=${IP}"  >> "$GITHUB_OUTPUT"
+
+      - name: Deploy via SSM (no SSH; sync to REMOTE_DIR and nginx docroot)
+        id: ssm
+        shell: bash
+        run: |
+          set -e
+          IID="${{ steps.inst.outputs.iid }}"
+          PRESIGNED="${{ steps.presign.outputs.url }}"
+          REMOTE_DIR="${{ env.REMOTE_DIR }}"
+          cat > run.sh <<'EOS'
+          set -Eeuo pipefail
+          LOG="/tmp/ssg-deploy.log"
+          exec > >(tee -a "$LOG") 2>&1
+          echo "=== ssg-examples SSM deploy (entire repo) ==="; date -u
+          PRESIGNED="__PRESIGNED__"; REMOTE_DIR="__REMOTE_DIR__"
+          for pkg in curl tar rsync; do
+            if ! command -v "$pkg" >/dev/null 2>&1; then
+              if command -v yum >/dev/null 2>&1; then sudo yum -y install "$pkg" >/dev/null || true; fi
+              if command -v dnf >/dev/null 2>&1; then sudo dnf -y install "$pkg" >/dev/null || true; fi
+              if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y >/dev/null && sudo apt-get install -y "$pkg" >/dev/null || true; fi
+            fi
+          done
+          sudo mkdir -p "$REMOTE_DIR"
+          TMP="/tmp/site.tgz"; curl -fsSL "$PRESIGNED" -o "$TMP"
+          TMPDIR="$(mktemp -d)"; tar -xzf "$TMP" -C "$TMPDIR"
+          DOCROOT=""
+          if command -v nginx >/dev/null 2>&1; then
+            DOCROOT="$(sudo nginx -T 2>/dev/null | awk '/^[[:space:]]*root[[:space:]]+/ && $0 !~ /#/ {gsub(/;$/,"",$2); print $2; exit}')"
+          fi
+          [ -n "$DOCROOT" ] || DOCROOT="/var/www/html"
+          sudo mkdir -p "$DOCROOT"
+          echo "REMOTE_DIR=$REMOTE_DIR  DOCROOT=$DOCROOT"
+          if command -v rsync >/dev/null 2>&1; then
+            sudo rsync -a --delete "$TMPDIR"/ "$REMOTE_DIR"/
+            [ "$DOCROOT" != "$REMOTE_DIR" ] && sudo rsync -a --delete "$TMPDIR"/ "$DOCROOT"/ || true
+          else
+            sudo rm -rf "$REMOTE_DIR"/*; sudo cp -a "$TMPDIR"/. "$REMOTE_DIR"/
+            if [ "$DOCROOT" != "$REMOTE_DIR" ]; then sudo rm -rf "$DOCROOT"/*; sudo cp -a "$TMPDIR"/. "$DOCROOT"/; fi
+          fi
+          sudo chown -R ec2-user:ec2-user "$REMOTE_DIR" || true
+          id nginx >/dev/null 2>&1 && sudo chown -R nginx:nginx "$DOCROOT" || true
+          sudo systemctl reload nginx 2>/dev/null || true
+          sudo rm -rf "$TMPDIR" "$TMP"
+          echo "Done."
+          EOS
+          safe_url=$(printf '%s' "$PRESIGNED" | sed -e 's/[\/&]/\\&/g')
+          sed -i "s|__PRESIGNED__|$safe_url|g" run.sh
+          sed -i "s|__REMOTE_DIR__|$REMOTE_DIR|g" run.sh
+          B64=$(base64 -w 0 < run.sh)
+          cat > /tmp/ssm.json <<JSON
+          {
+            "DocumentName": "AWS-RunShellScript",
+            "InstanceIds": ["$IID"],
+            "Parameters": {
+              "commands": ["echo $B64 | base64 -d | sudo bash -s"],
+              "executionTimeout": ["900"],
+              "workingDirectory": ["/home/ec2-user"]
+            },
+            "Comment": "ssg-examples deploy-repo $GITHUB_SHA"
+          }
+          JSON
+          CMD_ID=$(aws ssm send-command --cli-input-json file:///tmp/ssm.json --query "Command.CommandId" --output text)
+          echo "SSM CommandId: $CMD_ID"
+          for i in $(seq 1 40); do
+            STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text || true)"
+            echo "SSM status: $STATUS"
+            case "$STATUS" in
+              Success) exit 0 ;;
+              Failed|Cancelled|TimedOut)
+                echo "=== STDOUT ==="
+                aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text || true
+                echo "=== STDERR ==="
+                aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardErrorContent --output text || true
+                exit 1 ;;
+              *) sleep 5 ;;
+            esac
+          done
+          echo "SSM command did not finish in time"; exit 1
