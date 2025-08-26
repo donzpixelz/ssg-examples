@@ -8,36 +8,48 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
-      BUCKET: ${{ secrets.DEPLOY_S3_BUCKET }}
-      INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
+      DEPLOY_S3_BUCKET: ${{ secrets.DEPLOY_S3_BUCKET }}
+      SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Configure AWS credentials (requires standard AWS key secrets)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Package ./app
         run: |
           set -euo pipefail
           tar -czf app.tgz -C ./app .
 
-      - name: Upload artifacts to S3 with fresh key
+      - name: Upload to S3 and presign
         run: |
           set -euo pipefail
           KEY_PREFIX="examples/artifacts/${GITHUB_SHA}"
-          aws s3 cp app.tgz "s3://${BUCKET}/${KEY_PREFIX}/app.tgz" --region "$AWS_REGION"
-          aws s3 cp run.sh "s3://${BUCKET}/${KEY_PREFIX}/run.sh" --region "$AWS_REGION"
+          aws s3 cp app.tgz "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz" --region "${AWS_REGION}"
+          aws s3 cp run.sh  "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh"  --region "${AWS_REGION}"
 
-          APP_URL="$(aws s3 presign "s3://${BUCKET}/${KEY_PREFIX}/app.tgz" --region "$AWS_REGION" --expires-in 3600)"
-          RUN_URL="$(aws s3 presign "s3://${BUCKET}/${KEY_PREFIX}/run.sh" --region "$AWS_REGION" --expires-in 3600)"
+          APP_URL="$(aws s3 presign "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz" --region "${AWS_REGION}" --expires-in 3600)"
+          RUN_URL="$(aws s3 presign "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh"  --region "${AWS_REGION}" --expires-in 3600)"
 
-          echo "APP_URL=$APP_URL" >> "$GITHUB_ENV"
-          echo "RUN_URL=$RUN_URL" >> "$GITHUB_ENV"
+          echo "APP_URL=${APP_URL}" >> "$GITHUB_ENV"
+          echo "RUN_URL=${RUN_URL}" >> "$GITHUB_ENV"
 
-      - name: SSM: run deploy on EC2
+      - name: SSM dispatch to EC2
         run: |
           set -euo pipefail
-          # Build SSM payload with safe JSON quoting via jq
-          PAYLOAD="$(jq -nc --arg inst "$INSTANCE_ID" --arg run "$RUN_URL" --arg app "$APP_URL" '{
+          # Build JSON safely with jq to avoid shell-quoting bugs
+          PAYLOAD="$(jq -nc \
+            --arg inst "${SSM_INSTANCE_ID}" \
+            --arg run  "${RUN_URL}" \
+            --arg app  "${APP_URL}" \
+            '{
               DocumentName: "AWS-RunShellScript",
               InstanceIds: [$inst],
               Parameters: {
@@ -48,9 +60,9 @@ jobs:
                   "/tmp/run.sh \($app)"
                 ]
               }
-            }')"
-          aws ssm send-command --cli-input-json "$PAYLOAD" --region "$AWS_REGION" >/dev/null
+            }'
+          )"
+          aws ssm send-command --cli-input-json "${PAYLOAD}" --region "${AWS_REGION}" > /dev/null
 
       - name: Note
-        run: |
-          echo "Dispatched deploy to EC2 via SSM."
+        run: echo "Dispatched deploy via SSM."
