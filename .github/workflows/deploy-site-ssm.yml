@@ -1,175 +1,213 @@
-name: deploy-site-ssm
+name: Deploy site (SSM + SSGs)
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
     paths:
       - 'app/**'
       - 'nginx/**'
-      - 'run.sh'
       - '.github/workflows/deploy-site-ssm.yml'
+  workflow_dispatch:
 
-permissions:
-  id-token: write
-  contents: read
+concurrency:
+  group: deploy-site-ssm
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
+    name: Build & package site
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Ruby (for Jekyll)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Setup Hugo (extended)
+        uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: '0.128.2'
+          extended: true
+
+      - name: Build SSGs if present (sources under app/*)
+        run: |
+          set -euo pipefail
+          BUILD_ROOT="__deploy_root"
+          rm -rf "$BUILD_ROOT"
+          mkdir -p "$BUILD_ROOT"
+
+          echo "▶ Copy root site from app/ → $BUILD_ROOT/"
+          rsync -av --delete app/ "$BUILD_ROOT"/
+
+          # Jekyll: build if app/jekyll has _config.yml or Gemfile
+          if [ -d "app/jekyll" ] && { [ -f "app/jekyll/_config.yml" ] || [ -f "app/jekyll/Gemfile" ]; }; then
+            echo "▶ Building Jekyll..."
+            pushd app/jekyll >/dev/null
+            if [ -f Gemfile ]; then
+              bundle install --path vendor/bundle
+              JEKYLL_ENV=production bundle exec jekyll build -d "$GITHUB_WORKSPACE/$BUILD_ROOT/jekyll"
+            else
+              gem install jekyll bundler --no-document
+              JEKYLL_ENV=production jekyll build -d "$GITHUB_WORKSPACE/$BUILD_ROOT/jekyll"
+            fi
+            popd >/dev/null
+          else
+            echo "ℹ️ app/jekyll not configured; keeping placeholder (if any)."
+          fi
+
+          # Hugo: build if app/hugo has config.{toml,yaml,yml}
+          if [ -d "app/hugo" ] && ls app/hugo/config.* >/dev/null 2>&1; then
+            echo "▶ Building Hugo..."
+            pushd app/hugo >/dev/null
+            hugo --destination "$GITHUB_WORKSPACE/$BUILD_ROOT/hugo"
+            popd >/dev/null
+          else
+            echo "ℹ️ app/hugo not configured; keeping placeholder (if any)."
+          fi
+
+          # Eleventy: build if package.json references @11ty/eleventy or .eleventy.* exists
+          if [ -d "app/eleventy" ] && { grep -q '"@11ty/eleventy"' app/eleventy/package.json 2>/dev/null || ls app/eleventy/.eleventy.* >/dev/null 2>&1; }; then
+            echo "▶ Building Eleventy..."
+            pushd app/eleventy >/dev/null
+            if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
+            npx @11ty/eleventy --output "$GITHUB_WORKSPACE/$BUILD_ROOT/eleventy"
+            popd >/dev/null
+          else
+            echo "ℹ️ app/eleventy not configured; keeping placeholder (if any)."
+          fi
+
+          # Astro: build if package.json references "astro"
+          if [ -d "app/astro" ] && grep -q '"astro"' app/astro/package.json 2>/dev/null; then
+            echo "▶ Building Astro..."
+            pushd app/astro >/dev/null
+            if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
+            npx astro build --outDir "$GITHUB_WORKSPACE/$BUILD_ROOT/astro"
+            popd >/dev/null
+          else
+            echo "ℹ️ app/astro not configured; keeping placeholder (if any)."
+          fi
+
+      - name: Package site
+        run: |
+          set -euo pipefail
+          tar -czf site.tgz -C "__deploy_root" .
+          ls -lh site.tgz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-site
+          path: site.tgz
+          retention-days: 7
+
+  deploy:
+    name: Deploy to EC2 via SSM
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+      ARTIFACT_S3_BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET }}
+      SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
+      EC2_TAG_NAME: ssg-examples
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: built-site
+          path: .
+
+      - name: Verify required secret(s)
+        run: |
+          set -euo pipefail
+          : "${ARTIFACT_S3_BUCKET:?Missing ARTIFACT_S3_BUCKET secret. Set it in repo secrets.}"
+          : "${{ secrets.AWS_OIDC_ROLE_ARN || '' }}" || { echo "Missing AWS_OIDC_ROLE_ARN secret."; exit 1; }
+          echo "Using S3 bucket: ${ARTIFACT_S3_BUCKET}"
+          echo "Region: ${AWS_REGION}"
+
+      - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::953331331353:role/GitHubOIDC-ssg-examples
-          aws-region: us-east-2
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Who am I?
-        run: aws sts get-caller-identity
-
-      - name: Resolve bucket
+      - name: Upload tarball to S3
+        id: s3
         run: |
           set -euo pipefail
-          SECRET_VAL="${{ secrets.DEPLOY_S3_BUCKET }}"
-          echo "AWS_REGION=us-east-2" >> "$GITHUB_ENV"
-          if [ -n "$SECRET_VAL" ]; then
-            echo "BUCKET=$SECRET_VAL" >> "$GITHUB_ENV"
+          KEY="deploys/${GITHUB_RUN_ID}/site.tgz"
+          aws s3 cp site.tgz "s3://${ARTIFACT_S3_BUCKET}/${KEY}" --only-show-errors
+          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+          echo "Uploaded s3://${ARTIFACT_S3_BUCKET}/${KEY}"
+
+      - name: Resolve target instance
+        id: ssm
+        run: |
+          set -euo pipefail
+          if [ -n "${SSM_INSTANCE_ID:-}" ]; then
+            TARGET="$SSM_INSTANCE_ID"
+            echo "Using SSM_INSTANCE_ID secret: $TARGET"
           else
-            echo "BUCKET=ssg-examples-deploy-953331331353-us-east-2" >> "$GITHUB_ENV"
+            echo "Looking up instance by tag Name=${EC2_TAG_NAME}..."
+            TARGET="$(aws ec2 describe-instances \
+              --filters "Name=tag:Name,Values=${EC2_TAG_NAME}" "Name=instance-state-name,Values=running" \
+              --query "Reservations[].Instances[].InstanceId" --output text | head -n1)"
+            [ -n "$TARGET" ] || { echo "No running instance tagged Name=${EC2_TAG_NAME} found."; exit 1; }
+            echo "Resolved instance: $TARGET"
           fi
-          echo "Using bucket: ${SECRET_VAL:-ssg-examples-deploy-953331331353-us-east-2}"
+          echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure bucket exists (idempotent)
+      - name: Deploy via SSM (inline commands)
         run: |
           set -euo pipefail
-          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-            echo "Bucket exists: $BUCKET"
-          else
-            echo "Creating bucket: $BUCKET in $AWS_REGION"
-            if [ "$AWS_REGION" = "us-east-1" ]; then
-              aws s3api create-bucket --bucket "$BUCKET" || true
-            else
-              aws s3api create-bucket --bucket "$BUCKET" \
-                --create-bucket-configuration LocationConstraint="$AWS_REGION" || true
-            fi
-            aws s3api head-bucket --bucket "$BUCKET" >/dev/null 2>&1 || { echo "❌ Bucket ensure failed"; exit 1; }
-            aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled || true
-          fi
+          aws ssm send-command \
+            --instance-ids "${{ steps.ssm.outputs.target }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy ssg-examples $GITHUB_SHA" \
+            --parameters commands="$(
+cat <<'SSM'
+set -euo pipefail
+TMP="$(mktemp -d)"
+ART_BUCKET="${ARTIFACT_S3_BUCKET}"
+ART_KEY="${{ steps.s3.outputs.key }}"
+DEST="/usr/share/nginx/html"
 
-      - name: Package site (app + optional nginx/)
-        run: |
-          set -euo pipefail
-          test -f app/index.html || { echo "❌ app/index.html missing"; exit 2; }
-          if [ -d nginx ]; then
-            tar -czf site.tgz app nginx
-          else
-            tar -czf site.tgz app
-          fi
-          ls -l site.tgz
+if ! command -v aws >/dev/null 2>&1; then
+  echo "aws CLI not found on instance; cannot download from S3." >&2
+  exit 1
+fi
 
-      - name: Upload to S3 and presign
-        run: |
-          set -euo pipefail
-          KEY_PREFIX="examples/artifacts/${GITHUB_SHA}"
-          aws s3 cp site.tgz "s3://${BUCKET}/${KEY_PREFIX}/site.tgz" --region "$AWS_REGION" --acl bucket-owner-full-control
-          echo "APP_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/site.tgz --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
-          echo "APP_URL presigned."
+sudo mkdir -p "$DEST"
+aws s3 cp "s3://${ART_BUCKET}/${ART_KEY}" "$TMP/site.tgz"
+sudo tar -xzf "$TMP/site.tgz" -C "$DEST"
 
-      - name: Resolve SSM instance IDs (secret or Name tag)
-        id: ids
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-        run: |
-          set -euo pipefail
-          NAME_TAG="ssg-examples"
-          pat='^(i-[a-f0-9]{8}|i-[a-f0-9]{17}|mi-[a-z0-9]{17})$'
-          ids_secret='${{ secrets.SSM_INSTANCE_ID }}'
-          ids=""
-          if [ -n "$ids_secret" ] && [[ "$ids_secret" =~ $pat ]]; then
-            ids="$ids_secret"
-            echo "Using SSM_INSTANCE_ID secret: $ids"
-          else
-            echo "Secret missing/invalid. Querying by Name tag: $NAME_TAG"
-            ids=$(aws ec2 describe-instances --region "$AWS_REGION" \
-                  --filters "Name=tag:Name,Values=$NAME_TAG" "Name=instance-state-name,Values=running" \
-                  --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' ' ' | xargs || true)
-          fi
-          [ -n "$ids" ] || { echo "❌ No instance IDs found"; exit 12; }
-          echo "IDS=$ids" >> "$GITHUB_OUTPUT"
+# Ensure subpaths exist even if some builders were skipped
+for d in jekyll hugo eleventy astro; do
+  sudo mkdir -p "$DEST/$d"
+done
 
-      - name: SSM dispatch (inline deploy) — with quoted URL — and wait
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          IDS: ${{ steps.ids.outputs.IDS }}
-          APP_URL: ${{ env.APP_URL }}
-        run: |
-          set -euo pipefail
-          # ensure jq
-          command -v jq >/dev/null 2>&1 || { sudo apt-get update -y && sudo apt-get install -y jq; }
+# Validate and reload nginx (idempotent)
+if command -v nginx >/dev/null 2>&1; then
+  if sudo nginx -t; then
+    sudo systemctl reload nginx || sudo nginx -s reload || true
+  fi
+fi
 
-          # Convert space-separated IDs -> JSON array
-          json_ids=$(printf '%s\n' $IDS | jq -R . | jq -s .)
-
-          # Build commands with the URL safely quoted via jq @sh (shell-escaped)
-          jq -n --argjson arr "$json_ids" --arg app "$APP_URL" '{
-            DocumentName: "AWS-RunShellScript",
-            InstanceIds: $arr,
-            Parameters: { commands: [
-              "set -euo pipefail",
-              "trap \"\" PIPE",
-              "WORK=$(mktemp -d /tmp/site_deploy.XXXXXX)",
-              "ARCH=$WORK/site.tgz",
-              "STAGE=$WORK/stage",
-              "mkdir -p $STAGE",
-              "echo [1/6] download",
-              ("APP_URL=" + ($app|@sh)),
-              "curl -fsSL --retry 3 --retry-delay 2 -o $ARCH \"$APP_URL\"",
-              "echo [2/6] validate",
-              "tar -tzf $ARCH >/dev/null 2>&1",
-              "echo [3/6] unpack",
-              "tar -xzf $ARCH -C $STAGE",
-              "DOCROOT=/usr/share/nginx/html",
-              "echo [4/6] ensure nginx",
-              "if ! command -v nginx >/dev/null 2>&1; then if command -v dnf >/dev/null 2>&1; then dnf -y install nginx; else yum -y install nginx; fi; fi",
-              "mkdir -p /etc/nginx/conf.d $DOCROOT",
-              "echo [5/6] deploy files",
-              "if [ -d $STAGE/app ]; then SRC=$STAGE/app; else SRC=$STAGE; fi",
-              "if command -v rsync >/dev/null 2>&1; then rsync -a --delete $SRC/ $DOCROOT/; else find $DOCROOT -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true; cp -a $SRC/. $DOCROOT/; fi",
-              "chmod -R a+rX $DOCROOT",
-              "echo [6/6] restart nginx",
-              "if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload || true; systemctl enable nginx || true; systemctl restart nginx; else service nginx restart || service nginx start; fi",
-              "curl -fsS --max-time 8 http://127.0.0.1/ >/dev/null",
-              "echo DONE_OK"
-            ]}
-          }' > payload.json
-
-          echo "Dispatching to: $IDS"
-          send_out=$(aws ssm send-command --region "$AWS_REGION" --cli-input-json file://payload.json)
-          cmd_id=$(echo "$send_out" | jq -r '.Command.CommandId')
-
-          # Wait & stream logs
-          fail=0
-          for iid in $IDS; do
-            echo "Waiting for $iid (CommandId: $cmd_id)..."
-            for i in $(seq 1 60); do
-              sleep 5
-              inv=$(aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$cmd_id" --instance-id "$iid" || true)
-              status=$(echo "$inv" | jq -r '.Status // "Unknown"')
-              if [ "$status" = "Success" ] || [ "$status" = "Failed" ] || [ "$status" = "TimedOut" ] || [ "$status" = "Cancelled" ]; then
-                echo "---- $iid :: Status: $status ----"
-                echo "STDOUT:"
-                echo "$inv" | jq -r '.StandardOutputContent // ""'
-                echo "STDERR:"
-                echo "$inv" | jq -r '.StandardErrorContent // ""'
-                [ "$status" = "Success" ] || fail=1
-                break
-              fi
-              [ $i -lt 60 ] || { echo "Timed out waiting for $iid"; fail=1; }
-            done
-          done
-          [ $fail -eq 0 ] || { echo "❌ SSM reported failure."; exit 1; }
-          echo "✅ SSM completed successfully."
+rm -rf "$TMP"
+echo "Deployed to $DEST at $(date -u +%FT%TZ)"
+SSM
+)" \
+            --region "${AWS_REGION}" \
+            --output text >/dev/null

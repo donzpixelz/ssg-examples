@@ -1,80 +1,38 @@
 #!/usr/bin/env bash
-# Local deploy driver:
-# - commit/push (best-effort)
-# - dispatch workflow via gh (best-effort)
-# - open Actions page (best-effort)
-# - return to prompt
+# deploy_site_now — commit/push to trigger CI/SSM deploy. Returns to prompt.
 
-# no set -e: we want to return to prompt even if something hiccups
-set -u
+set -euo pipefail
 
-log="/tmp/deploy_site_now.local.$USER.log"
-{
-  echo
-  echo "===== $(date +'%Y-%m-%d %H:%M:%S') :: deploy_site_now START ====="
-} >>"$log"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$REPO_ROOT"
 
-say(){ printf "%s\n" "$*"; echo "$*" >>"$log"; }
-safe(){ "$@" >>"$log" 2>&1 || true; }
+MSG="${1:-Deploy site}"
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 
-MSG="${1:-site: update}"
+echo "▶ Staging deploy paths..."
+git add -A app/ nginx/ .github/workflows/deploy-site-ssm.yml || true
 
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [ -z "$ROOT" ]; then
-  say "❌ Not in a git repo."
-  printf "🪵 Log: %s\n" "$log"
-  exit 0
-fi
-cd "$ROOT" || true
-
-BR="$(git branch --show-current 2>/dev/null || true)"
-[ -n "$BR" ] || BR="main"
-
-say "📁 Repo: $ROOT"
-say "🌿 Branch: $BR"
-
-safe git add -A
-if ! git diff --cached --quiet 2>/dev/null; then
-  say "📝 Commit: $MSG"
-  safe git commit -m "$MSG"
+if git diff --cached --quiet; then
+  echo "ℹ️ No staged changes; creating an empty commit to trigger CI."
+  git commit --allow-empty -m "$MSG"
 else
-  say "ℹ️  No changes to commit."
+  echo "▶ Committing changes..."
+  git commit -m "$MSG"
 fi
 
-safe git fetch origin
-safe git pull --rebase origin "$BR"
-safe git push -u origin "$BR"
+echo "▶ Pushing to origin/${BRANCH}..."
+git push origin "$BRANCH"
 
-if command -v gh >/dev/null 2>&1; then
-  say "🚀 Dispatch: deploy-site-ssm.yml"
-  safe gh workflow run "deploy-site-ssm.yml" --ref "$BR"
-else
-  say "⚠️  'gh' not found; skipping dispatch."
+ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions/workflows/deploy-site-ssm.yml"
+
+# Optional: set ACTIONS_OPEN=1 in your environment to auto-open the workflow page.
+if [ "${ACTIONS_OPEN:-0}" = "1" ] || [ "${ACTIONS_OPEN:-0}" = "true" ] || [ "${ACTIONS_OPEN:-0}" = "yes" ]; then
+  if command -v open >/dev/null 2>&1; then
+    open "$ACTIONS_URL" || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$ACTIONS_URL" || true
+  fi
 fi
 
-# Build Actions URL from origin; fallback to repo remote if parseable
-ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
-ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
-if [[ "$ORIGIN_URL" =~ ^git@github\.com:([^/]+/[^.]+)\.git$ ]]; then
-  ACTIONS_URL="https://github.com/${BASH_REMATCH[1]}/actions"
-elif [[ "$ORIGIN_URL" =~ ^https?://github\.com/([^/]+/[^.]+)\.git$ ]]; then
-  ACTIONS_URL="https://github.com/${BASH_REMATCH[1]}/actions"
-elif [[ "$ORIGIN_URL" =~ ^https?://github\.com/([^/]+/[^ ]+)$ ]]; then
-  ACTIONS_URL="https://github.com/${BASH_REMATCH[1]}/actions"
-fi
-
-# Open best-effort; never fail the script for opener issues
-if command -v open >/dev/null 2>&1; then
-  ( open "$ACTIONS_URL" >/dev/null 2>&1 || true )
-elif command -v xdg-open >/dev/null 2>&1; then
-  ( xdg-open "$ACTIONS_URL" >/dev/null 2>&1 || true )
-elif command -v python3 >/dev/null 2>&1; then
-  python3 - <<PY || true
-import webbrowser; webbrowser.open("${ACTIONS_URL}", new=2)
-PY
-fi
-
-printf "🌐 Actions: %s\n" "$ACTIONS_URL"
-printf "🪵 Log: %s\n" "$log"
-printf "✅ Done.\n"
-exit 0
+echo "✅ Pushed. CI should start shortly."
+echo "Done."
