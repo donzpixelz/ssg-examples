@@ -15,12 +15,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      # If you have OIDC set up, set secret AWS_ROLE_TO_ASSUME to your IAM role ARN.
+      # Otherwise, make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY secrets exist.
+      - name: Configure AWS credentials (OIDC role or static keys)
+        id: creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sanity check credentials
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity >/dev/null
 
       - name: Package app
         run: |
