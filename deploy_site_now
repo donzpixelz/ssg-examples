@@ -6,62 +6,41 @@
 set -euo pipefail
 MSG="${1:-site: update}"
 
-# --- ensure we are at the repo root the script lives in ---
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+# --- go to repo root ---
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$ROOT" ] || { echo "❌ Not inside a git repository."; exit 1; }
+cd "$ROOT"
 
-# --- branch ---
+# --- current branch ---
 CURBR="$(git branch --show-current 2>/dev/null || true)"
 [ -n "$CURBR" ] || { echo "❌ Cannot determine current branch."; exit 1; }
 
-# --- stage/commit if needed, sync, push ---
+# --- stage, commit (if any), sync, push ---
 git add -A
 if ! git diff --cached --quiet; then
   git commit -m "$MSG"
 fi
 git fetch origin
-git pull --rebase origin "$CURBR" || { echo "❌ Rebase failed."; exit 1; }
+git pull --rebase origin "$CURBR"
 git push -u origin "$CURBR"
 
-# --- trigger workflow (no inputs) ---
+# --- trigger GitHub Actions workflow (no inputs) ---
 WORKFLOW_FILE="deploy-site-ssm.yml"
 if command -v gh >/dev/null 2>&1; then
   gh workflow run "$WORKFLOW_FILE" --ref "$CURBR" || true
 fi
 
-# --- ALWAYS open the exact Actions tab (hard-coded as requested) ---
+# --- ALWAYS open the exact Actions tab for this repo ---
 ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
+# Prefer AppleScript (reliable from IDE terminals), then macOS open, then xdg-open
+if command -v osascript >/dev/null 2>&1; then
+  osascript -e 'open location "'"$ACTIONS_URL"'"' || true
+elif [ -x /usr/bin/open ]; then
+  /usr/bin/open "$ACTIONS_URL" || true
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$ACTIONS_URL" || true
+fi
 echo "🌐 Actions: $ACTIONS_URL"
-
-# Try several open strategies, all in background, and NEVER fail the script:
-(
-  # macOS AppleScript (most reliable from IDE terminals)
-  if command -v osascript >/dev/null 2>&1; then
-    nohup osascript -e 'open location "'"$ACTIONS_URL"'"' >/dev/null 2>&1 &
-    exit 0
-  fi
-
-  # macOS open
-  if [ -x /usr/bin/open ]; then
-    nohup /usr/bin/open "$ACTIONS_URL" >/dev/null 2>&1 &
-    exit 0
-  fi
-
-  # Linux xdg-open
-  if command -v xdg-open >/dev/null 2>&1; then
-    nohup xdg-open "$ACTIONS_URL" >/dev/null 2>&1 &
-    exit 0
-  fi
-
-  # Python fallback
-  if command -v python3 >/dev/null 2>&1; then
-    nohup python3 - <<PY >/dev/null 2>&1 &
-import webbrowser
-webbrowser.open("$ACTIONS_URL")
-PY
-    exit 0
-  fi
-) || true
 
 echo "✅ Done."
 # ✅ Done: full script above
