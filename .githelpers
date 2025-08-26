@@ -1,0 +1,6 @@
+deploy_site_now() {
+  msg="${1:-site: update}"
+  git add app && git commit -m "$msg" && git push origin main
+  gh workflow run "Deploy site (/app) to Nginx (authoritative)" --ref main
+  echo "Triggered. To watch:  gh run watch --exit-status"
+}
