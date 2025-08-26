@@ -40,7 +40,6 @@ jobs:
           else
             echo "BUCKET=ssg-examples-deploy-953331331353-us-east-2" >> "$GITHUB_ENV"
           fi
-          echo "Using bucket: ${SECRET_VAL:-ssg-examples-deploy-953331331353-us-east-2}"
 
       - name: Ensure bucket exists (idempotent)
         run: |
@@ -62,11 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f app/index.html || { echo "❌ app/index.html missing"; exit 2; }
-          if [ -d nginx ]; then
-            tar -czf site.tgz app nginx
-          else
-            tar -czf site.tgz app
-          fi
+          if [ -d nginx ]; then tar -czf site.tgz app nginx; else tar -czf site.tgz app; fi
           ls -l site.tgz
 
       - name: Upload to S3 and presign
@@ -88,7 +83,6 @@ jobs:
           pat='^(i-[a-f0-9]{8}|i-[a-f0-9]{17}|mi-[a-z0-9]{17})$'
           ids_secret='${{ secrets.SSM_INSTANCE_ID }}'
           ids=""
-
           if [ -n "$ids_secret" ] && [[ "$ids_secret" =~ $pat ]]; then
             ids="$ids_secret"
             echo "Using SSM_INSTANCE_ID secret: $ids"
@@ -96,16 +90,33 @@ jobs:
             echo "Secret missing/invalid. Querying by Name tag: $NAME_TAG"
             ids=$(aws ec2 describe-instances --region "$AWS_REGION"                   --filters "Name=tag:Name,Values=$NAME_TAG" "Name=instance-state-name,Values=running"                   --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' ' ' | xargs || true)
           fi
-
-          [ -n "$ids" ] || { echo "❌ No instance IDs found (set SSM_INSTANCE_ID or tag Name=$NAME_TAG)."; exit 12; }
+          [ -n "$ids" ] || { echo "❌ No instance IDs found"; exit 12; }
           echo "IDS=$ids" >> "$GITHUB_OUTPUT"
 
-      - name: SSM dispatch (no jq, direct --instance-ids)
+      - name: Build payload & SSM dispatch (JSON; robust quoting)
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           IDS: ${{ steps.ids.outputs.IDS }}
         run: |
           set -euo pipefail
-          echo "Dispatching to: $IDS"
-          aws ssm send-command             --region "$AWS_REGION"             --document-name "AWS-RunShellScript"             --instance-ids $IDS             --parameters commands="set -euo pipefail","curl -fsSL -o /tmp/run.sh $RUN_URL","chmod +x /tmp/run.sh","/tmp/run.sh $APP_URL"             >/dev/null
+          python3 - <<'PY'
+import json, os, sys
+ids = os.environ.get("IDS","").split()
+run = os.environ.get("RUN_URL","")
+app = os.environ.get("APP_URL","")
+if not ids or not run or not app:
+    sys.exit("Missing IDS/RUN_URL/APP_URL")
+payload = {
+  "DocumentName": "AWS-RunShellScript",
+  "InstanceIds": ids,
+  "Parameters": { "commands": [
+    "set -euo pipefail",
+    f"curl -fsSL -o /tmp/run.sh {run}",
+    "chmod +x /tmp/run.sh",
+    f"/tmp/run.sh {app}"
+  ]}
+}
+open("payload.json","w").write(json.dumps(payload))
+PY
+          aws ssm send-command --region "$AWS_REGION" --cli-input-json file://payload.json >/dev/null
           echo "SSM sent."
