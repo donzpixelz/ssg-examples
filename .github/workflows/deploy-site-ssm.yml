@@ -1,0 +1,112 @@
+name: deploy-site-ssm
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::953331331353:role/GitHubOIDC-ssg-examples
+          aws-region: us-east-2
+
+      - name: Who am I?
+        run: aws sts get-caller-identity
+
+      - name: Resolve bucket
+        run: |
+          set -euo pipefail
+          SECRET_VAL="${{ secrets.DEPLOY_S3_BUCKET }}"
+          if [ -n "$SECRET_VAL" ]; then
+            echo "BUCKET=$SECRET_VAL" >> "$GITHUB_ENV"
+          else
+            echo "BUCKET=ssg-examples-deploy-953331331353-us-east-2" >> "$GITHUB_ENV"
+          fi
+          echo "AWS_REGION=us-east-2" >> "$GITHUB_ENV"
+
+      - name: Ensure bucket exists (idempotent)
+        run: |
+          set -euo pipefail
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "Bucket exists: $BUCKET"
+          else
+            echo "Creating bucket: $BUCKET in $AWS_REGION"
+            if [ "$AWS_REGION" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "$BUCKET" || true
+            else
+              aws s3api create-bucket --bucket "$BUCKET" \
+                --create-bucket-configuration LocationConstraint="$AWS_REGION" || true
+            fi
+            aws s3api head-bucket --bucket "$BUCKET" >/dev/null 2>&1 || { echo "❌ Bucket ensure failed"; exit 1; }
+            aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled || true
+          fi
+
+      - name: Package site (app only)
+        run: |
+          set -euo pipefail
+          test -f app/index.html || { echo "❌ app/index.html missing"; exit 2; }
+          tar -czf site.tgz -C app .
+
+      - name: Upload to S3 and presign
+        run: |
+          set -euo pipefail
+          KEY_PREFIX="examples/artifacts/${GITHUB_SHA}"
+          aws s3 cp site.tgz "s3://${BUCKET}/${KEY_PREFIX}/site.tgz" --region "$AWS_REGION" --acl bucket-owner-full-control
+          aws s3 cp run.sh  "s3://${BUCKET}/${KEY_PREFIX}/run.sh"  --region "$AWS_REGION" --acl bucket-owner-full-control
+          echo "APP_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/site.tgz --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
+          echo "RUN_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/run.sh  --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
+
+      - name: Resolve SSM targets and dispatch
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          NAME_TAG="ssg-examples"
+          pat='^(i-[a-f0-9]{8}|i-[a-f0-9]{17}|mi-[a-z0-9]{17})$'
+
+          ids_secret='${{ secrets.SSM_INSTANCE_ID }}'
+          ids=""
+
+          if [ -n "$ids_secret" ] && [[ "$ids_secret" =~ $pat ]]; then
+            ids="$ids_secret"
+            echo "Using SSM_INSTANCE_ID secret: $ids"
+          else
+            echo "Secret missing/invalid. Trying Name tag: $NAME_TAG"
+            ids=$(aws ec2 describe-instances --region "$AWS_REGION" \
+                  --filters "Name=tag:Name,Values=$NAME_TAG" "Name=instance-state-name,Values=running" \
+                  --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' ' ' | xargs || true)
+          fi
+
+          [ -n "$ids" ] || { echo "❌ Could not resolve any instance IDs (set SSM_INSTANCE_ID or tag the instance Name=$NAME_TAG)."; exit 12; }
+
+          json='[]'
+          for iid in $ids; do
+            if [[ "$iid" =~ $pat ]]; then
+              json=$(jq --arg v "$iid" '. + [ $v ]' <<<"$json")
+            fi
+          done
+          [ "$json" != "[]" ] || { echo "❌ No valid instance IDs after validation."; exit 13; }
+
+          jq -n --argjson arr "$json" --arg run "$RUN_URL" --arg app "$APP_URL" '{
+            DocumentName: "AWS-RunShellScript",
+            InstanceIds: $arr,
+            Parameters: { commands: [
+              "set -euo pipefail",
+              "curl -fsSL -o /tmp/run.sh \($run)",
+              "chmod +x /tmp/run.sh",
+              "/tmp/run.sh \($app)"
+            ]}
+          }' > payload.json
+
+          aws ssm send-command --cli-input-json file://payload.json --region "$AWS_REGION" >/dev/null
+          echo "SSM dispatched."
