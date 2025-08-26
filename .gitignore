@@ -34,3 +34,6 @@ terraform/.terraform/
 
 # Large backup
 repo-backup.bundle
+
+site.tgz
+.logs
