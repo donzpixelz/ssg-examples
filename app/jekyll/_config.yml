@@ -1,0 +1,11 @@
+title: "ssg-examples: Jekyll"
+description: "Example Jekyll site"
+url: ""
+baseurl: "/jekyll"
+theme: minima
+plugins:
+  - jekyll-feed
+permalink: pretty
+exclude:
+  - vendor
+  - node_modules
