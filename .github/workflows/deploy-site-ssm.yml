@@ -17,6 +17,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,7 +52,8 @@ jobs:
             if [ "$AWS_REGION" = "us-east-1" ]; then
               aws s3api create-bucket --bucket "$BUCKET" || true
             else
-              aws s3api create-bucket --bucket "$BUCKET"                 --create-bucket-configuration LocationConstraint="$AWS_REGION" || true
+              aws s3api create-bucket --bucket "$BUCKET" \
+                --create-bucket-configuration LocationConstraint="$AWS_REGION" || true
             fi
             aws s3api head-bucket --bucket "$BUCKET" >/dev/null 2>&1 || { echo "❌ Bucket ensure failed"; exit 1; }
             aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled || true
@@ -61,7 +63,11 @@ jobs:
         run: |
           set -euo pipefail
           test -f app/index.html || { echo "❌ app/index.html missing"; exit 2; }
-          if [ -d nginx ]; then tar -czf site.tgz app nginx; else tar -czf site.tgz app; fi
+          if [ -d nginx ]; then
+            tar -czf site.tgz app nginx
+          else
+            tar -czf site.tgz app
+          fi
           ls -l site.tgz
 
       - name: Upload to S3 and presign
@@ -88,35 +94,37 @@ jobs:
             echo "Using SSM_INSTANCE_ID secret: $ids"
           else
             echo "Secret missing/invalid. Querying by Name tag: $NAME_TAG"
-            ids=$(aws ec2 describe-instances --region "$AWS_REGION"                   --filters "Name=tag:Name,Values=$NAME_TAG" "Name=instance-state-name,Values=running"                   --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' ' ' | xargs || true)
+            ids=$(aws ec2 describe-instances --region "$AWS_REGION" \
+                  --filters "Name=tag:Name,Values=$NAME_TAG" "Name=instance-state-name,Values=running" \
+                  --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' ' ' | xargs || true)
           fi
           [ -n "$ids" ] || { echo "❌ No instance IDs found"; exit 12; }
           echo "IDS=$ids" >> "$GITHUB_OUTPUT"
 
-      - name: Build payload & SSM dispatch (JSON; robust quoting)
+      - name: Build JSON payload & dispatch via SSM
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           IDS: ${{ steps.ids.outputs.IDS }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-import json, os, sys
-ids = os.environ.get("IDS","").split()
-run = os.environ.get("RUN_URL","")
-app = os.environ.get("APP_URL","")
-if not ids or not run or not app:
-    sys.exit("Missing IDS/RUN_URL/APP_URL")
-payload = {
-  "DocumentName": "AWS-RunShellScript",
-  "InstanceIds": ids,
-  "Parameters": { "commands": [
-    "set -euo pipefail",
-    f"curl -fsSL -o /tmp/run.sh {run}",
-    "chmod +x /tmp/run.sh",
-    f"/tmp/run.sh {app}"
-  ]}
-}
-open("payload.json","w").write(json.dumps(payload))
-PY
+          # Ensure jq exists (usually present on ubuntu-latest)
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y && sudo apt-get install -y jq
+          fi
+          # Convert space-separated IDS into JSON array
+          json_ids=$(printf '%s\n' $IDS | jq -R . | jq -s .)
+          # Build payload safely with jq (escapes URLs)
+          jq -n --argjson arr "$json_ids" --arg run "$RUN_URL" --arg app "$APP_URL" '{
+            DocumentName: "AWS-RunShellScript",
+            InstanceIds: $arr,
+            Parameters: { commands: [
+              "set -euo pipefail",
+              ("curl -fsSL -o /tmp/run.sh " + $run),
+              "chmod +x /tmp/run.sh",
+              ("/tmp/run.sh " + $app)
+            ]}
+          }' > payload.json
+
+          echo "Dispatching to IDs: $IDS"
           aws ssm send-command --region "$AWS_REGION" --cli-input-json file://payload.json >/dev/null
           echo "SSM sent."
