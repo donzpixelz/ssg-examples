@@ -63,7 +63,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # No repo-root lockfile cache
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -165,11 +164,9 @@ jobs:
     env:
       AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME || secrets.AWS_OIDC_ROLE_ARN || '' }}
       AWS_REGION: ${{ needs.diagnose.outputs.region }}
-      # These may be empty; we handle fallback to tag
       EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID || '' }}
       SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID || '' }}
       EC2_TAG_NAME: ssg-examples
-      # Optional bucket secret; if empty, we'll auto-provision a per-account bucket
       ARTIFACT_S3_BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET || '' }}
     steps:
       - name: Download artifact
@@ -184,10 +181,19 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Ensure jq on runner
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
+
       - name: Ensure artifact bucket (auto-provision if missing)
         id: bucket
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          trap 'echo "ERR(bucket) line $LINENO: $BASH_COMMAND" >&2' ERR
           REGION="${AWS_REGION}"
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           if [ -n "${ARTIFACT_S3_BUCKET:-}" ]; then
@@ -207,7 +213,6 @@ jobs:
             else
               aws s3api create-bucket --bucket "$BUCKET" --create-bucket-configuration LocationConstraint="$REGION"
             fi
-            # Good hygiene: private bucket, you own objects
             aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration \
               BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
             aws s3api put-bucket-ownership-controls --bucket "$BUCKET" --ownership-controls 'Rules=[{ObjectOwnership=BucketOwnerEnforced}]' || true
@@ -217,7 +222,8 @@ jobs:
       - name: Upload tarball to S3
         id: s3
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          trap 'echo "ERR(upload) line $LINENO: $BASH_COMMAND" >&2' ERR
           BUCKET="${{ steps.bucket.outputs.bucket }}"
           KEY="deploys/${GITHUB_RUN_ID}/site.tgz"
           aws s3 cp site.tgz "s3://${BUCKET}/${KEY}" --only-show-errors
@@ -228,7 +234,8 @@ jobs:
       - name: Resolve target instance
         id: target
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          trap 'echo "ERR(target) line $LINENO: $BASH_COMMAND" >&2' ERR
           if [ -n "${EC2_INSTANCE_ID:-}" ]; then
             TGT="$EC2_INSTANCE_ID"
             echo "Using EC2_INSTANCE_ID secret."
@@ -244,19 +251,20 @@ jobs:
           fi
           echo "target=${TGT}" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy via SSM (diagnostic + wait)
+      - name: Deploy via SSM (diagnostic + wait + fetch logs)
         env:
           ARTIFACT_KEY: ${{ steps.s3.outputs.key }}
           ARTIFACT_BUCKET: ${{ steps.s3.outputs.bucket }}
           TARGET: ${{ steps.target.outputs.target }}
           SHA: ${{ github.sha }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          trap 'echo "ERR(ssm) line $LINENO: $BASH_COMMAND" >&2' ERR
 
+          # Build remote script
           read -r -d '' REMOTE_SCRIPT <<'EOS'
           set -euo pipefail
 
-          # Figure out effective docroot from nginx -T; fallback to /usr/share/nginx/html
           get_docroot() {
             if command -v nginx >/dev/null 2>&1; then
               ROOTS="$(sudo nginx -T 2>/dev/null | awk "/server_name _;|server_name _ default_server;|server_name _ default;|server_name _;/{flag=1} flag && /root /{print \$2}" | tr -d ';' | head -n1 || true)"
@@ -324,23 +332,42 @@ jobs:
           rm -rf "$TMP"
           EOS
 
-          # Send command & wait for completion
+          # Create JSON parameter for SSM (avoids quoting issues)
+          jq -n --arg cmd "$REMOTE_SCRIPT" '{commands: [$cmd]}' > params.json
+
+          # Send command
           CID="$(aws ssm send-command \
             --instance-ids "$TARGET" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy with diagnostics ${SHA}" \
-            --parameters commands="$REMOTE_SCRIPT" \
+            --parameters file://params.json \
             --region "${AWS_REGION}" \
             --query "Command.CommandId" --output text)"
+          echo "SSM CommandId: $CID"
 
+          # Poll until finished
           while true; do
             STATUS="$(aws ssm get-command-invocation --instance-id "$TARGET" --command-id "$CID" --query 'Status' --output text 2>/dev/null || echo 'Unknown')"
             echo "SSM status: $STATUS"
             case "$STATUS" in
               Success) break ;;
-              Failed|Cancelled|TimedOut) echo "❌ SSM Run Command failed: $STATUS"; exit 1 ;;
+              Failed|Cancelled|TimedOut) echo "❌ SSM Run Command failed: $STATUS"; break ;;
               *) sleep 4 ;;
             esac
           done
+
+          # Fetch remote outputs for visibility
+          OUT_JSON="$(aws ssm get-command-invocation --instance-id "$TARGET" --command-id "$CID" --plugin-name 'aws:runShellScript' --output json 2>/dev/null || echo '{}')"
+          echo "----- Remote STDOUT (first 300 lines) -----"
+          echo "$OUT_JSON" | jq -r '.StandardOutputContent // ""' | sed -n '1,300p'
+          echo "----- Remote STDERR (first 300 lines) -----"
+          echo "$OUT_JSON" | jq -r '.StandardErrorContent // ""' | sed -n '1,300p'
+
+          # Fail the step if final status is not Success
+          FINAL_STATUS="$(echo "$OUT_JSON" | jq -r '.Status // empty')"
+          if [ "$FINAL_STATUS" != "Success" ]; then
+            echo "❌ Final SSM plugin status: ${FINAL_STATUS:-unknown}"
+            exit 1
+          fi
 
           echo "✅ Remote deploy completed."
