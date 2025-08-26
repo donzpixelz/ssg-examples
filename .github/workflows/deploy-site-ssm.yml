@@ -17,6 +17,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,6 +41,7 @@ jobs:
           else
             echo "BUCKET=ssg-examples-deploy-953331331353-us-east-2" >> "$GITHUB_ENV"
           fi
+          echo "Using bucket: ${SECRET_VAL:-ssg-examples-deploy-953331331353-us-east-2}"
 
       - name: Ensure bucket exists (idempotent)
         run: |
@@ -74,9 +76,8 @@ jobs:
           set -euo pipefail
           KEY_PREFIX="examples/artifacts/${GITHUB_SHA}"
           aws s3 cp site.tgz "s3://${BUCKET}/${KEY_PREFIX}/site.tgz" --region "$AWS_REGION" --acl bucket-owner-full-control
-          aws s3 cp run.sh  "s3://${BUCKET}/${KEY_PREFIX}/run.sh"  --region "$AWS_REGION" --acl bucket-owner-full-control
           echo "APP_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/site.tgz --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
-          echo "RUN_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/run.sh  --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
+          echo "APP_URL presigned."
 
       - name: Resolve SSM instance IDs (secret or Name tag)
         id: ids
@@ -100,30 +101,79 @@ jobs:
           [ -n "$ids" ] || { echo "❌ No instance IDs found"; exit 12; }
           echo "IDS=$ids" >> "$GITHUB_OUTPUT"
 
-      - name: Build JSON payload & dispatch via SSM
+      - name: SSM dispatch (inline deploy) and wait for completion
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           IDS: ${{ steps.ids.outputs.IDS }}
+          APP_URL: ${{ env.APP_URL }}
         run: |
           set -euo pipefail
-          # jq is on ubuntu-latest; install if missing
+          # jq is typically present, but ensure it
           command -v jq >/dev/null 2>&1 || { sudo apt-get update -y && sudo apt-get install -y jq; }
 
-          # Convert space-separated IDs to JSON array
+          # Array-ify IDS (space-separated)
           json_ids=$(printf '%s\n' $IDS | jq -R . | jq -s .)
 
-          # Build payload safely with jq (properly escapes presigned URLs)
-          jq -n --argjson arr "$json_ids" --arg run "$RUN_URL" --arg app "$APP_URL" '{
+          # Build SSM commands to run everything inline on the instance
+          jq -n --argjson arr "$json_ids" --arg app "$APP_URL" '{
             DocumentName: "AWS-RunShellScript",
             InstanceIds: $arr,
             Parameters: { commands: [
               "set -euo pipefail",
-              ("curl -fsSL -o /tmp/run.sh " + $run),
-              "chmod +x /tmp/run.sh",
-              ("/tmp/run.sh " + $app)
+              "trap \"\" PIPE",
+              "WORK=$(mktemp -d /tmp/site_deploy.XXXXXX)",
+              "ARCH=$WORK/site.tgz",
+              "STAGE=$WORK/stage",
+              "mkdir -p $STAGE",
+              "echo [1/6] download",
+              ("curl -fsSL --retry 3 --retry-delay 2 -o $ARCH " + $app),
+              "echo [2/6] validate",
+              "tar -tzf $ARCH >/dev/null 2>&1",
+              "echo [3/6] unpack",
+              "tar -xzf $ARCH -C $STAGE",
+              "DOCROOT=/usr/share/nginx/html",
+              "echo [4/6] ensure nginx",
+              "if ! command -v nginx >/dev/null 2>&1; then if command -v dnf >/dev/null 2>&1; then dnf -y install nginx; else yum -y install nginx; fi; fi",
+              "mkdir -p /etc/nginx/conf.d $DOCROOT",
+              "echo [5/6] deploy files",
+              "if [ -d $STAGE/app ]; then SRC=$STAGE/app; else SRC=$STAGE; fi",
+              "if command -v rsync >/dev/null 2>&1; then rsync -a --delete $SRC/ $DOCROOT/; else find $DOCROOT -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true; cp -a $SRC/. $DOCROOT/; fi",
+              "chmod -R a+rX $DOCROOT",
+              "echo [6/6] restart nginx",
+              "if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload || true; systemctl enable nginx || true; systemctl restart nginx; else service nginx restart || service nginx start; fi",
+              "curl -fsS --max-time 8 http://127.0.0.1/ >/dev/null",
+              "echo DONE_OK"
             ]}
           }' > payload.json
 
-          echo "Dispatching to IDs: $IDS"
-          aws ssm send-command --region "$AWS_REGION" --cli-input-json file://payload.json >/dev/null
-          echo "SSM sent."
+          echo "Dispatching to: $IDS"
+          send_out=$(aws ssm send-command --region "$AWS_REGION" --cli-input-json file://payload.json)
+          echo "$send_out" | jq '.Command' > /tmp/ssm_command.json
+          cmd_id=$(echo "$send_out" | jq -r '.Command.CommandId')
+
+          # Wait for each instance until Success/Failed, stream final output
+          fail=0
+          for iid in $IDS; do
+            echo "Waiting for $iid (CommandId: $cmd_id)..."
+            for i in $(seq 1 60); do
+              sleep 5
+              inv=$(aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$cmd_id" --instance-id "$iid" || true)
+              status=$(echo "$inv" | jq -r '.Status // "Unknown"')
+              if [ "$status" = "Success" ] || [ "$status" = "Failed" ] || [ "$status" = "TimedOut" ] || [ "$status" = "Cancelled" ]; then
+                echo "---- $iid :: Status: $status ----"
+                echo "STDOUT:"
+                echo "$inv" | jq -r '.StandardOutputContent // ""'
+                echo "STDERR:"
+                echo "$inv" | jq -r '.StandardErrorContent // ""'
+                [ "$status" = "Success" ] || fail=1
+                break
+              fi
+              if [ $i -eq 60 ]; then
+                echo "Timed out waiting for $iid"
+                fail=1
+              fi
+            done
+          done
+
+          [ $fail -eq 0 ] || { echo "❌ SSM reported failure."; exit 1; }
+          echo "✅ SSM completed successfully."
