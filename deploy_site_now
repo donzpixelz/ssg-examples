@@ -1,77 +1,40 @@
 #!/usr/bin/env bash
 # Full, copy-pasteable Bash file
-# Safe to run (will NOT auto-close your terminal)
-# File: deploy_site_now
+# File: ./deploy_site_now
 
 set -euo pipefail
-
 MSG="${1:-site: update}"
 
-# ---- lightweight log ----
-LOG="/tmp/deploy_site_now.log"
-{ echo; echo "===== $(date +'%Y-%m-%d %H:%M:%S') :: deploy_site_now START ====="; } >>"$LOG"
-exec > >(tee -a "$LOG") 2>&1
-
 # ---- repo root ----
-if ! ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-  echo "❌ Not inside a git repository."
-  exit 1
-fi
-cd "$ROOT"
-echo "📁 Repo: $ROOT"
+cd /Users/.projects/ssg-examples
 
-# ---- branch ----
+echo "📁 Repo: $(pwd)"
 CURBR="$(git branch --show-current 2>/dev/null || true)"
-if [[ -z "$CURBR" ]]; then
-  echo "❌ Cannot determine current branch."
-  exit 1
-fi
 echo "🌿 Branch: $CURBR"
 
-# ---- stage & commit if needed ----
 git add -A
 if git diff --cached --quiet; then
   echo "ℹ️  No local changes to commit."
 else
-  echo "📝 Commit: $MSG"
   git commit -m "$MSG"
 fi
 
-# ---- ensure remote, rebase, push ----
-if ! git remote get-url origin >/dev/null 2>&1; then
-  echo "❌ No 'origin' remote configured."
-  exit 1
-fi
-
-echo "⬇️  Fetch & rebase..."
 git fetch origin
-git pull --rebase origin "$CURBR" || { echo "❌ Rebase failed. Resolve conflicts, then re-run."; exit 1; }
-
-echo "⬆️  Push..."
+git pull --rebase origin "$CURBR"
 git push -u origin "$CURBR"
 
-# ---- trigger GitHub Actions workflow (no inputs) ----
 WORKFLOW_FILE="deploy-site-ssm.yml"
 if command -v gh >/dev/null 2>&1; then
-  echo "🚀 Triggering workflow: ${WORKFLOW_FILE}"
-  gh workflow run "${WORKFLOW_FILE}" --ref "$CURBR" || echo "⚠️  Workflow dispatch may not have been created."
-else
-  echo "⚠️  GitHub CLI ('gh') not found; skipping workflow trigger."
+  gh workflow run "${WORKFLOW_FILE}" --ref "$CURBR" || true
 fi
 
-# ---- OPEN THE EXACT ACTIONS TAB (hard-coded to your repo as requested) ----
+# Always open the Actions tab (exactly /actions)
 ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
-echo "🌐 Opening Actions tab: ${ACTIONS_URL}"
+echo "🌐 Opening Actions tab: $ACTIONS_URL"
 if [ -x /usr/bin/open ]; then
-  /usr/bin/open "$ACTIONS_URL" || true
-elif command -v open >/dev/null 2>&1; then
-  open "$ACTIONS_URL" || true
-elif command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "$ACTIONS_URL" || true
+  /usr/bin/open "$ACTIONS_URL"
 else
-  echo "🔗 ${ACTIONS_URL}"
+  echo "🔗 $ACTIONS_URL"
 fi
 
-echo "✅ Done: committed/pushed, dispatched workflow, opened the Actions tab."
-echo "===== $(date +'%Y-%m-%d %H:%M:%S') :: deploy_site_now END =====" >>"$LOG"
-# ✅ Done: full script above
+echo "✅ Done."
