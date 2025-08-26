@@ -22,10 +22,10 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}   # e.g. arn:aws:iam::<acct>:role/GitHubOIDCDeploy
+          role-to-assume: arn:aws:iam::953331331353:role/GitHubOIDC-ssg-examples
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Sanity check caller identity
+      - name: Who am I?
         run: aws sts get-caller-identity
 
       - name: Package app

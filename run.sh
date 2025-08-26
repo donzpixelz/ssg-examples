@@ -12,10 +12,10 @@ ARCHIVE="$WORK/app.tgz"
 STAGE="$WORK/stage"
 mkdir -p "$STAGE"
 
-echo "[1/6] Download"
+echo "[1/5] Download"
 curl -fsSL --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ART_URL"
 
-echo "[2/6] Validate & unpack"
+echo "[2/5] Validate & unpack"
 tar -tzf "$ARCHIVE" >/dev/null 2>&1 || { echo "❌ Bad .tgz"; exit 3; }
 tar -xzf "$ARCHIVE" -C "$STAGE"
 
@@ -25,7 +25,7 @@ for d in "$STAGE" "$STAGE"/*; do
 done
 [ -n "$ROOT_CANDIDATE" ] || { echo "❌ index.html not found"; exit 4; }
 
-echo "[3/6] Ensure nginx & fixed config"
+echo "[3/5] Ensure nginx and fixed config"
 if ! command -v nginx >/dev/null 2>&1; then
   if command -v dnf >/dev/null 2>&1; then dnf -y install nginx; else yum -y install nginx; fi
 fi
@@ -46,7 +46,7 @@ server {
 NGINX
 nginx -t
 
-echo "[4/6] Deploy → $DOCROOT"
+echo "[4/5] Deploy -> $DOCROOT"
 mkdir -p "$DOCROOT"
 if command -v rsync >/dev/null 2>&1; then
   rsync -a --delete "$ROOT_CANDIDATE"/ "$DOCROOT"/
@@ -56,7 +56,7 @@ else
 fi
 chmod -R a+rX "$DOCROOT"
 
-echo "[5/6] Restart nginx"
+echo "[5/5] Restart & verify"
 if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload || true
   systemctl enable nginx || true
@@ -64,7 +64,5 @@ if command -v systemctl >/dev/null 2>&1; then
 else
   service nginx restart || service nginx start
 fi
-
-echo "[6/6] Verify"
 curl -fsS --max-time 8 http://127.0.0.1/ >/dev/null || { echo "❌ nginx did not serve index"; exit 8; }
 echo "✅ Deployed."
