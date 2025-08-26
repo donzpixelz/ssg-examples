@@ -4,20 +4,16 @@ MSG="${1:-site: update}"
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"; [ -n "$ROOT" ] || { echo "❌ Not in git repo."; exit 1; }
 cd "$ROOT"
-CURBR="$(git branch --show-current 2>/dev/null || true)"; [ -n "$CURBR" ] || { echo "❌ No branch."; exit 1; }
+BR="$(git branch --show-current 2>/dev/null || true)"; [ -n "$BR" ] || { echo "❌ No branch."; exit 1; }
 
 git add -A
 if ! git diff --cached --quiet; then git commit -m "$MSG"; fi
 git fetch origin
-git pull --rebase origin "$CURBR"
-git push -u origin "$CURBR"
+git pull --rebase origin "$BR"
+git push -u origin "$BR"
 
-# Dispatch workflow (no inputs)
-if command -v gh >/dev/null 2>&1; then
-  gh workflow run "deploy-site-ssm.yml" --ref "$CURBR" || true
-fi
+if command -v gh >/dev/null 2>&1; then gh workflow run "deploy-site-ssm.yml" --ref "$BR" || true; fi
 
-# Open Actions tab (exact URL)
 URL="https://github.com/donzpixelz/ssg-examples/actions"
 if [ -x /usr/bin/osascript ]; then /usr/bin/osascript -e 'open location "'"$URL"'"' || true
 elif [ -x /usr/bin/open ]; then /usr/bin/open "$URL" || true

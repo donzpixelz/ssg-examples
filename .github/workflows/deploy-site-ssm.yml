@@ -14,7 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # HARD-CODED REGION to avoid "aws-region" missing error
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -34,36 +33,27 @@ jobs:
           KEY_PREFIX="examples/artifacts/${GITHUB_SHA}"
           aws s3 cp app.tgz "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz" --region "$REGION"
           aws s3 cp run.sh  "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh"  --region "$REGION"
-
           APP_URL="$(aws s3 presign "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz" --region "$REGION" --expires-in 3600)"
           RUN_URL="$(aws s3 presign "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh"  --region "$REGION" --expires-in 3600)"
+          echo "APP_URL=$APP_URL" >> "$GITHUB_ENV"
+          echo "RUN_URL=$RUN_URL" >> "$GITHUB_ENV"
 
-          echo "APP_URL=${APP_URL}" >> "$GITHUB_ENV"
-          echo "RUN_URL=${RUN_URL}" >> "$GITHUB_ENV"
-
-      - name: SSM dispatch to EC2
+      - name: SSM: run deploy on EC2
         run: |
           set -euo pipefail
           REGION="us-east-2"
-          # Build JSON safely with jq to avoid quoting issues
-          PAYLOAD="$(jq -nc \
-            --arg inst "${SSM_INSTANCE_ID}" \
-            --arg run  "${RUN_URL}" \
-            --arg app  "${APP_URL}" \
-            '{
-              DocumentName: "AWS-RunShellScript",
-              InstanceIds: [$inst],
-              Parameters: {
-                commands: [
-                  "set -euo pipefail",
-                  "curl -fsSL -o /tmp/run.sh \($run)",
-                  "chmod +x /tmp/run.sh",
-                  "/tmp/run.sh \($app)"
-                ]
-              }
-            }'
-          )"
-          aws ssm send-command --cli-input-json "${PAYLOAD}" --region "$REGION" > /dev/null
+          # Safe JSON with jq
+          PAYLOAD="$(jq -nc --arg inst "${SSM_INSTANCE_ID}" --arg run "${RUN_URL}" --arg app "${APP_URL}" '{
+            DocumentName: "AWS-RunShellScript",
+            InstanceIds: [$inst],
+            Parameters: { commands: [
+              "set -euo pipefail",
+              "curl -fsSL -o /tmp/run.sh \($run)",
+              "chmod +x /tmp/run.sh",
+              "/tmp/run.sh \($app)"
+            ]}
+          }')"
+          aws ssm send-command --cli-input-json "$PAYLOAD" --region "$REGION" >/dev/null
 
-      - name: Note
+      - name: Done
         run: echo "Dispatched deploy via SSM."
