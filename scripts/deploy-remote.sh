@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Actions runner: upload run.sh to S3, presign it, then SSM: curl && sudo bash run.sh ARTIFACT_URL REMOTE_ROOT
+# Actions runner: upload run.sh to S3, presign it, then call SSM via --cli-input-json.
 set -Eeuo pipefail
 : "${AWS_REGION:?}"; : "${INSTANCE_ID:?}"; : "${ARTIFACT_URL:?}"
 REMOTE_ROOT="${REMOTE_ROOT:-/usr/share/nginx/html}"
@@ -78,12 +78,31 @@ echo "[3/5] Presign both URLs"
 RUN_URL="$(aws s3 presign "s3://$BUCKET/$KEY_RUN" --expires-in 3600)"
 ART_URL="${ARTIFACT_URL}"
 
-echo "[4/5] SSM: curl run.sh and execute (no here-docs, no pipes in parameters)"
-CMD_ID=$(aws ssm send-command \
-  --document-name "AWS-RunShellScript" \
-  --instance-ids "$INSTANCE_ID" \
-  --parameters commands="curl -fsSL \"$RUN_URL\" -o /tmp/run.sh && sudo bash /tmp/run.sh \"$ART_URL\" \"$REMOTE_ROOT\"" \
-  --query "Command.CommandId" --output text)
+echo "[4/5] SSM via --cli-input-json (robust quoting)"
+# Ensure jq exists (GitHub ubuntu-latest usually has it; install if missing)
+if ! command -v jq >/dev/null 2>&1; then
+  sudo apt-get update -y >/dev/null 2>&1 || true
+  sudo apt-get install -y jq >/dev/null 2>&1 || true
+fi
+
+# Build the exact command we want to run on the instance
+REMOTE_CMD="curl -fsSL \"${RUN_URL}\" -o /tmp/run.sh && sudo bash /tmp/run.sh \"${ART_URL}\" \"${REMOTE_ROOT}\""
+
+# Produce a fully-escaped JSON payload for send-command
+PAYLOAD="$(jq -n \
+  --arg iid "$INSTANCE_ID" \
+  --arg cmd "$REMOTE_CMD" \
+  '{
+     DocumentName: "AWS-RunShellScript",
+     InstanceIds: [$iid],
+     Parameters: {
+       commands: [$cmd],
+       executionTimeout: ["900"],
+       workingDirectory: ["/home/ec2-user"]
+     }
+   }')"
+
+CMD_ID="$(aws ssm send-command --cli-input-json "$PAYLOAD" --query "Command.CommandId" --output text)"
 echo "SSM CommandId: $CMD_ID"
 
 echo "[5/5] Poll to completion"
