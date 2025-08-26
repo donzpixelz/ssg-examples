@@ -1,39 +1,20 @@
 #!/usr/bin/env bash
-# deploy_site_now — commit/push to trigger CI/SSM deploy. Safe: never 'exit' your terminal.
-
+# deploy_site_now — commit/push and trigger the workflow; returns to prompt; optionally open Actions page
 set -euo pipefail
-
-# Always operate inside repo root
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$ROOT" || :
-
-MSG="${1:-Deploy site}"
+MSG="${1:-site: update}"
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
-
-echo "▶ Staging deploy paths..."
-git add -A app/ nginx/ .github/workflows/deploy-site-ssm.yml || true
-
+git add -A || true
 if git diff --cached --quiet; then
-  echo "ℹ️ No staged changes; creating an empty commit to trigger CI."
-  git commit --allow-empty -m "$MSG" || true
+  echo "ℹ️ Nothing to commit; pushing anyway to trigger (if prior changes exist)."
 else
-  echo "▶ Committing changes..."
   git commit -m "$MSG" || true
 fi
-
-echo "▶ Pushing to origin/${BRANCH}..."
 git push origin "$BRANCH" || true
 
-# Optionally open the workflow page (won't kill your terminal)
-REPO_SLUG="$(git config --get remote.origin.url | sed -E 's#.*github.com[:/]|\.git$##g')"
-URL="https://github.com/${REPO_SLUG}/actions/workflows/deploy-site-ssm.yml"
-if [ "${ACTIONS_OPEN:-0}" = "1" ] || [ "${ACTIONS_OPEN:-0}" = "true" ] || [ "${ACTIONS_OPEN:-0}" = "yes" ]; then
-  if command -v open >/dev/null 2>&1; then
-    (open "$URL" >/dev/null 2>&1 &)  # launch detached
-  elif command -v xdg-open >/dev/null 2>&1; then
-    (xdg-open "$URL" >/dev/null 2>&1 &)
-  fi
-fi
+# Optional: open Actions page without blocking terminal; ignore failures
+ACTIONS_URL="$(git config --get remote.origin.url | sed -e 's#^git@github.com:#https://github.com/#' -e 's#\.git$##')/actions"
+( command -v open >/dev/null 2>&1 && nohup open "$ACTIONS_URL" >/dev/null 2>&1 & ) || true
+( command -v xdg-open >/dev/null 2>&1 && nohup xdg-open "$ACTIONS_URL" >/dev/null 2>&1 & ) || true
 
-echo "✅ Triggered CI. This script is done — returning to your prompt."
-# NOTE: Do NOT 'exit' or 'exec' — leave the shell alone.
+echo "✅ Pushed. Workflow should run shortly. Message: $MSG"
+exit 0

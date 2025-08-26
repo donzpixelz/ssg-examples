@@ -21,14 +21,19 @@ jobs:
       id-token: write
       contents: read
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
-      # Hard-coded role ARN you provided (OIDC assume)
-      AWS_ROLE_TO_ASSUME: arn:aws:iam::953331331353:role/GitHubActions-ssg-examples-ssh
+      # Region / Role — use your configured secret if present, otherwise fixed values you provided
+      AWS_REGION: ${{ secrets.AWS_REGION || vars.AWS_REGION || 'us-east-2' }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME || 'arn:aws:iam::953331331353:role/GitHubActions-ssg-examples-ssh' }}
+      # Bucket — prefer your secret; else fall back to the known-good (Aug 25) bucket
+      ARTIFACT_S3_BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET || 'ssg-examples-artifacts-953331331353-us-east-2' }}
+      # Instance selection — prefer EC2_INSTANCE_ID secret, else by Name tag
+      NAME_TAG: ssg-examples
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup build toolchains
+      # Toolchains for optional SSG builds
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -43,7 +48,7 @@ jobs:
           hugo-version: '0.128.2'
           extended: true
 
-      - name: Build site (app root + optional /jekyll,/hugo,/eleventy,/astro)
+      - name: Build app + optional SSGs (/jekyll,/hugo,/eleventy,/astro)
         run: |
           set -euo pipefail
           BUILD="__deploy_root"
@@ -51,7 +56,8 @@ jobs:
           rsync -av --delete app/ "$BUILD"/
 
           # Jekyll
-          if [ -d app/jekyll ] && { [ -f app/jekyll/_config.yml ] || [ -f app/jekyll/Gemfile ] ; }; then
+          if [ -d app/jekyll ] && { [ -f app/jekyll/_config.yml ] || [ -f app/jekyll/Gemfile ]; }; then
+            echo "▶ Building Jekyll…"
             pushd app/jekyll >/dev/null
             if [ -f Gemfile ]; then
               bundle install --path vendor/bundle
@@ -65,6 +71,7 @@ jobs:
 
           # Hugo
           if [ -d app/hugo ] && ls app/hugo/config.* >/dev/null 2>&1; then
+            echo "▶ Building Hugo…"
             pushd app/hugo >/dev/null
             hugo --destination "$GITHUB_WORKSPACE/$BUILD/hugo"
             popd >/dev/null
@@ -72,16 +79,30 @@ jobs:
 
           # Eleventy
           if [ -d app/eleventy ] && { grep -q '"@11ty/eleventy"' app/eleventy/package.json 2>/dev/null || ls app/eleventy/.eleventy.* >/dev/null 2>&1; }; then
+            echo "▶ Building Eleventy…"
             pushd app/eleventy >/dev/null
-            if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
+            if [ -f package-lock.json ]; then
+              npm ci
+            elif [ -f pnpm-lock.yaml ]; then
+              npm i -g pnpm && pnpm i
+            else
+              npm install
+            fi
             npx @11ty/eleventy --output "$GITHUB_WORKSPACE/$BUILD/eleventy"
             popd >/dev/null
           fi
 
           # Astro
           if [ -d app/astro ] && grep -q '"astro"' app/astro/package.json 2>/dev/null; then
+            echo "▶ Building Astro…"
             pushd app/astro >/dev/null
-            if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
+            if [ -f package-lock.json ]; then
+              npm ci
+            elif [ -f pnpm-lock.yaml ]; then
+              npm i -g pnpm && pnpm i
+            else
+              npm install
+            fi
             npx astro build --outDir "$GITHUB_WORKSPACE/$BUILD/astro"
             popd >/dev/null
           fi
@@ -90,10 +111,9 @@ jobs:
         run: |
           set -euo pipefail
           tar -czf site.tgz -C "__deploy_root" .
-          echo "Packaged artifact:"
           ls -lh site.tgz
 
-      - name: Configure AWS (OIDC assume)
+      - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
@@ -107,85 +127,47 @@ jobs:
             sudo apt-get install -y jq
           fi
 
-      - name: Resolve artifact bucket (secrets/vars) or fail clearly
-        id: bucket
-        run: |
-          set -euo pipefail
-          pick_first() {
-            for k in "$@"; do
-              v="$(jq -r ".${k}" <<<'{}' 2>/dev/null || true)" # no-op
-            done
-          }
-
-          # Pull candidates from both secrets.* and vars.*
-          CANDIDATES=("ARTIFACT_S3_BUCKET" "S3_ARTIFACT_BUCKET" "S3_BUCKET" "WEBSITE_BUCKET" "DEPLOY_ARTIFACT_BUCKET" "AWS_S3_BUCKET" "ARTIFACT_BUCKET")
-
-          BUCKET=""
-          SRC=""
-          for name in "${CANDIDATES[@]}"; do
-            # GitHub exposes env interpolation; read both contexts:
-            val="${{ secrets.ARTIFACT_S3_BUCKET || '' }}"
-            : # dummy to keep expression syntax valid
-            case "$name" in
-              ARTIFACT_S3_BUCKET) val="${{ secrets.ARTIFACT_S3_BUCKET || vars.ARTIFACT_S3_BUCKET || '' }}";;
-              S3_ARTIFACT_BUCKET) val="${{ secrets.S3_ARTIFACT_BUCKET  || vars.S3_ARTIFACT_BUCKET  || '' }}";;
-              S3_BUCKET)          val="${{ secrets.S3_BUCKET           || vars.S3_BUCKET           || '' }}";;
-              WEBSITE_BUCKET)     val="${{ secrets.WEBSITE_BUCKET      || vars.WEBSITE_BUCKET      || '' }}";;
-              DEPLOY_ARTIFACT_BUCKET) val="${{ secrets.DEPLOY_ARTIFACT_BUCKET || vars.DEPLOY_ARTIFACT_BUCKET || '' }}";;
-              AWS_S3_BUCKET)      val="${{ secrets.AWS_S3_BUCKET       || vars.AWS_S3_BUCKET       || '' }}";;
-              ARTIFACT_BUCKET)    val="${{ secrets.ARTIFACT_BUCKET     || vars.ARTIFACT_BUCKET     || '' }}";;
-            esac
-            if [ -n "$val" ]; then BUCKET="$val"; SRC="$name"; break; fi
-          done
-
-          if [ -z "$BUCKET" ]; then
-            echo "❌ Could not find your bucket name in any of:" >&2
-            printf '   - secrets/vars: %s\n' "${CANDIDATES[@]}" >&2
-            echo "   Please add one (e.g. ARTIFACT_S3_BUCKET) in repo Settings → Secrets and variables." >&2
-            exit 1
-          fi
-
-          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
-          echo "source=$SRC"    >> "$GITHUB_OUTPUT"
-          echo "Bucket source: $SRC" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload tarball to your bucket
+      - name: Upload tarball to S3 (fixed/secret bucket)
         id: s3
         env:
-          BUCKET: ${{ steps.bucket.outputs.bucket }}
+          BUCKET: ${{ env.ARTIFACT_S3_BUCKET }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          trap 'echo "ERR(upload) line $LINENO: $BASH_COMMAND" >&2' ERR
           KEY="deploys/${GITHUB_RUN_ID}/site.tgz"
           echo "Uploading to s3://${BUCKET}/${KEY}"
           aws s3 cp site.tgz "s3://${BUCKET}/${KEY}" --only-show-errors
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
           echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve target instance (secret EC2_INSTANCE_ID or Name=ssg-examples)
+      - name: Resolve target instance
         id: target
         run: |
           set -euo pipefail
           if [ -n "${{ secrets.EC2_INSTANCE_ID }}" ]; then
             IID="${{ secrets.EC2_INSTANCE_ID }}"
+            SRC="EC2_INSTANCE_ID secret"
           else
             IID="$(aws ec2 describe-instances \
-                --filters "Name=tag:Name,Values=ssg-examples" "Name=instance-state-name,Values=running" \
-                --query "Reservations[].Instances[].InstanceId" --output text | head -n1 || true)"
+              --filters "Name=tag:Name,Values=${{ env.NAME_TAG }}" "Name=instance-state-name,Values=running" \
+              --query "Reservations[].Instances[].InstanceId" --output text | head -n1 || true)"
+            SRC="tag:Name=${{ env.NAME_TAG }}"
           fi
-          [ -n "$IID" ] || { echo "❌ No running instance found (need EC2_INSTANCE_ID secret or tag Name=ssg-examples)" >&2; exit 1; }
+          [ -n "$IID" ] || { echo "❌ No running instance found via $SRC" >&2; exit 1; }
           echo "instance_id=$IID" >> "$GITHUB_OUTPUT"
+          echo "Target InstanceId: $IID (via $SRC)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Deploy via SSM (download from your bucket) + wait + diagnostics
+      - name: Deploy via SSM (download from bucket) + nginx routes + diagnostics
         env:
           TARGET: ${{ steps.target.outputs.instance_id }}
           BUCKET: ${{ steps.s3.outputs.bucket }}
           KEY:    ${{ steps.s3.outputs.key }}
           SHA:    ${{ github.sha }}
+          AWS_REGION: ${{ env.AWS_REGION }}
         run: |
           set -Eeuo pipefail
           trap 'echo "ERR(ssm) line $LINENO: $BASH_COMMAND" >&2' ERR
 
-          # Template with literal values embedded (no reliance on remote env)
           TEMPLATE="$(cat <<'EOS'
           set -euo pipefail
           ARTIFACT_BUCKET="__BUCKET__"
@@ -209,9 +191,6 @@ jobs:
           echo "==> Downloading artifact from s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY}"
           aws s3 cp "s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY}" "$PKG"
 
-          echo "==> Contents of artifact (top):"
-          tar -tzf "$PKG" | head -n 20 || true
-
           echo "==> Unpacking"
           tar -xzf "$PKG" -C "$WORK"
 
@@ -222,23 +201,38 @@ jobs:
           echo "==> Ensure SSG subdirs exist"
           for d in jekyll hugo eleventy astro; do sudo mkdir -p "$DOCROOT/$d"; done
 
+          echo "==> Install/update EC2 nginx updater and apply routes"
+          sudo install -m 0755 /dev/stdin /usr/local/bin/update-ssg-nginx.sh <<'EC2SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          DOCROOT="${1:-/usr/share/nginx/html}"
+          CONF="/etc/nginx/conf.d/ssg-subsites.conf"
+          sudo mkdir -p "$(dirname "$CONF")"
+          sudo tee "$CONF" >/dev/null <<'NGX'
+          # Auto-managed SSG subroutes
+          location ^~ /jekyll/   { root /usr/share/nginx/html; try_files $uri $uri/ /jekyll/index.html;   autoindex off; }
+          location ^~ /hugo/     { root /usr/share/nginx/html; try_files $uri $uri/ /hugo/index.html;     autoindex off; }
+          location ^~ /eleventy/ { root /usr/share/nginx/html; try_files $uri $uri/ /eleventy/index.html; autoindex off; }
+          location ^~ /astro/    { root /usr/share/nginx/html; try_files $uri $uri/ /astro/index.html;    autoindex off; }
+          NGX
+          if command -v nginx >/dev/null 2>&1; then
+            sudo nginx -t
+            sudo systemctl reload nginx 2>/dev/null || sudo nginx -s reload 2>/dev/null || true
+          fi
+          echo "✅ Nginx routes ensured at $CONF"
+          EC2SCRIPT
+
+          sudo /usr/local/bin/update-ssg-nginx.sh "$DOCROOT" || true
+
           echo "==> Stamp deploy"
           printf "sha: %s\nutc: %s\n" "${SHA:-unknown}" "$(date -u +%FT%TZ)" | sudo tee "$DOCROOT/_deploy.txt" >/dev/null || true
-
-          echo "==> nginx test/reload"
-          if command -v nginx >/dev/null 2>&1; then
-            sudo nginx -t && (sudo systemctl reload nginx || sudo nginx -s reload || true)
-          fi
 
           echo "==> Listing DOCROOT"
           sudo ls -lah "$DOCROOT" | sed -n "1,120p"
 
-          echo "==> index.html head (if present)"
-          sudo head -n 10 "$DOCROOT/index.html" || true
-
           echo "==> curl localhost/"
           CURL_OUT="$(curl -sS -H "Cache-Control: no-cache" --max-time 5 http://127.0.0.1/ 2>&1 || true)"
-          echo "$CURL_OUT" | head -n 20
+          echo "$CURL_OUT" | head -n 30
 
           echo "===== DIAGNOSTIC SUMMARY ====="
           echo "BUCKET_USED=$ARTIFACT_BUCKET"
@@ -257,10 +251,8 @@ jobs:
           REMOTE_SCRIPT="${REMOTE_SCRIPT//__KEY__/$KEY}"
           REMOTE_SCRIPT="${REMOTE_SCRIPT//__SHA__/$SHA}"
 
-          # Create JSON param for SSM
           jq -n --arg cmd "$REMOTE_SCRIPT" '{commands: [$cmd]}' > params.json
 
-          # Send SSM command
           CID="$(aws ssm send-command \
             --instance-ids "$TARGET" \
             --document-name "AWS-RunShellScript" \
@@ -270,7 +262,7 @@ jobs:
             --query "Command.CommandId" --output text)"
           echo "SSM CommandId: $CID"
 
-          # Wait for completion
+          # Wait for completion and print logs
           while true; do
             STATUS="$(aws ssm get-command-invocation --instance-id "$TARGET" --command-id "$CID" --query 'Status' --output text 2>/dev/null || echo 'Unknown')"
             echo "SSM status: $STATUS"
@@ -280,8 +272,6 @@ jobs:
               *) sleep 4 ;;
             esac
           done
-
-          # Fetch remote outputs
           OUT_JSON="$(aws ssm get-command-invocation --instance-id "$TARGET" --command-id "$CID" --plugin-name 'aws:runShellScript' --output json 2>/dev/null || echo '{}')"
           echo "----- Remote STDOUT (first 200 lines) -----"
           echo "$OUT_JSON" | jq -r '.StandardOutputContent // ""' | sed -n '1,200p'
@@ -289,9 +279,5 @@ jobs:
           echo "$OUT_JSON" | jq -r '.StandardErrorContent // ""' | sed -n '1,200p'
 
           FINAL_STATUS="$(echo "$OUT_JSON" | jq -r '.Status // empty')"
-          if [ "$FINAL_STATUS" != "Success" ]; then
-            echo "❌ Final SSM plugin status: ${FINAL_STATUS:-unknown}"
-            exit 1
-          fi
-
+          [ "$FINAL_STATUS" = "Success" ] || { echo "❌ Final SSM plugin status: ${FINAL_STATUS:-unknown}"; exit 1; }
           echo "✅ Remote deploy completed."
