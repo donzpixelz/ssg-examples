@@ -1,26 +1,66 @@
 #!/usr/bin/env bash
-set -euo pipefail
-MSG="${1:-site: update}"
+# Local deploy driver:
+# - Commit/push current branch
+# - Dispatch workflow (best-effort)
+# - Open the Actions page (best-effort)
+# - Never exit nonzero due to opener glitches
+set -Eeuo pipefail
 
+MSG="${1:-site: update}"
+STATUS=0
+trap 'STATUS=0; echo "⚠️  Ignored non-critical error; continuing…"' ERR
+
+# Repo + branch
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"; [ -n "$ROOT" ] || { echo "❌ Not in git repo."; exit 1; }
 cd "$ROOT"
 BR="$(git branch --show-current 2>/dev/null || true)"; [ -n "$BR" ] || { echo "❌ No branch."; exit 1; }
 
-git add -A
-if ! git diff --cached --quiet; then git commit -m "$MSG"; fi
-git fetch origin
+# Commit & push
+git add -A || true
+if ! git diff --cached --quiet; then
+  git commit -m "$MSG" || true
+fi
+git fetch origin || true
 git pull --rebase origin "$BR" || true
-git push -u origin "$BR"
+git push -u origin "$BR" || true
 
-# Try to dispatch; never block opening the page
-if command -v gh >/dev/null 2>&1; then gh workflow run "deploy-site-ssm.yml" --ref "$BR" || true; fi
-
-URL="https://github.com/donzpixelz/ssg-examples/actions"
-# Open unconditionally
-if [ -x /usr/bin/osascript ]; then /usr/bin/osascript -e 'open location "'"$URL"'"' || true
-elif [ -x /usr/bin/open ]; then /usr/bin/open "$URL" || true
-elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" || true
+# Dispatch GitHub Actions (best-effort)
+if command -v gh >/dev/null 2>&1; then
+  gh workflow run "deploy-site-ssm.yml" --ref "$BR" || true
+else
+  echo "ℹ️  'gh' not found; skipping dispatch."
 fi
 
-echo "🌐 Actions: $URL"
+# Derive Actions URL from origin, with safe fallback
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
+if [[ "$ORIGIN_URL" =~ ^git@github\.com:([^/]+/[^.]+)\.git$ ]]; then
+  ACTIONS_URL="https://github.com/${BASH_REMATCH[1]}/actions"
+elif [[ "$ORIGIN_URL" =~ ^https?://github\.com/([^/]+/[^.]+)\.git$ ]]; then
+  ACTIONS_URL="https://github.com/${BASH_REMATCH[1]}/actions"
+elif [[ "$ORIGIN_URL" =~ ^https?://github\.com/([^/]+/[^ ]+)$ ]]; then
+  ACTIONS_URL="https://github.com/${BASH_REMATCH[1]}/actions"
+fi
+
+# Open the Actions page — never fail the script if this hiccups.
+_open_ok=0
+if command -v open >/dev/null 2>&1; then
+  ( open "$ACTIONS_URL" >/dev/null 2>&1 || true )
+  _open_ok=1
+elif command -v xdg-open >/dev/null 2>&1; then
+  ( xdg-open "$ACTIONS_URL" >/dev/null 2>&1 || true )
+  _open_ok=1
+fi
+
+# Last-resort opener via Python’s stdlib (no external deps)
+if [ $_open_ok -eq 0 ] && command -v python3 >/dev/null 2>&1; then
+  python3 - <<PY || true
+import webbrowser
+webbrowser.open("${ACTIONS_URL}", new=2)
+PY
+fi
+
+echo "🌐 Actions: $ACTIONS_URL"
 echo "✅ Done."
+# Explicitly exit 0 so IntelliJ Terminal does not close the tab on non-critical errors
+exit 0
