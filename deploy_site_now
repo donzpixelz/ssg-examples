@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Full, copy-pasteable Bash file
-# Safe to run (will NOT auto-close your terminal)
-# File: deploy_site_now (MINIMAL)
+# File: deploy_site_now (repo-local script)
 
 set -euo pipefail
 MSG="${1:-site: update}"
@@ -32,14 +31,18 @@ fi
 
 # 5) open Actions tab (hard-coded to your repo)
 ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
-# Prefer AppleScript from IntelliJ/macOS, then open, then xdg-open; always print URL.
-if command -v osascript >/dev/null 2>&1; then
-  osascript -e 'open location "'"$ACTIONS_URL"'"' || true
+
+# Try multiple open methods; don't fail the deploy if they can't open.
+# Use absolute paths where possible (IntelliJ shells sometimes have PATH quirks).
+if [ -x /usr/bin/osascript ]; then
+  /usr/bin/osascript -e 'open location "'"$ACTIONS_URL"'"' || true
 elif [ -x /usr/bin/open ]; then
   /usr/bin/open "$ACTIONS_URL" || true
 elif command -v xdg-open >/dev/null 2>&1; then
   xdg-open "$ACTIONS_URL" || true
 fi
+
+# Always print the URL so you can click it if needed.
 echo "🌐 Actions: $ACTIONS_URL"
 
 echo "✅ Done."
