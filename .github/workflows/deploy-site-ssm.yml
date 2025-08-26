@@ -261,8 +261,8 @@ jobs:
           set -Eeuo pipefail
           trap 'echo "ERR(ssm) line $LINENO: $BASH_COMMAND" >&2' ERR
 
-          # Build remote script
-          read -r -d '' REMOTE_SCRIPT <<'EOS'
+          # Build remote script safely via heredoc capture (no read -d '')
+          REMOTE_SCRIPT="$(cat <<'EOS'
           set -euo pipefail
 
           get_docroot() {
@@ -331,6 +331,7 @@ jobs:
 
           rm -rf "$TMP"
           EOS
+          )"
 
           # Create JSON parameter for SSM (avoids quoting issues)
           jq -n --arg cmd "$REMOTE_SCRIPT" '{commands: [$cmd]}' > params.json
@@ -356,14 +357,13 @@ jobs:
             esac
           done
 
-          # Fetch remote outputs for visibility
+          # Fetch remote outputs
           OUT_JSON="$(aws ssm get-command-invocation --instance-id "$TARGET" --command-id "$CID" --plugin-name 'aws:runShellScript' --output json 2>/dev/null || echo '{}')"
           echo "----- Remote STDOUT (first 300 lines) -----"
           echo "$OUT_JSON" | jq -r '.StandardOutputContent // ""' | sed -n '1,300p'
           echo "----- Remote STDERR (first 300 lines) -----"
           echo "$OUT_JSON" | jq -r '.StandardErrorContent // ""' | sed -n '1,300p'
 
-          # Fail the step if final status is not Success
           FINAL_STATUS="$(echo "$OUT_JSON" | jq -r '.Status // empty')"
           if [ "$FINAL_STATUS" != "Success" ]; then
             echo "❌ Final SSM plugin status: ${FINAL_STATUS:-unknown}"
