@@ -3,6 +3,10 @@ name: deploy-site-ssm
 on:
   workflow_dispatch:
 
+permissions:
+  id-token: write     # REQUIRED for OIDC
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -15,21 +19,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # If you have OIDC set up, set secret AWS_ROLE_TO_ASSUME to your IAM role ARN.
-      # Otherwise, make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY secrets exist.
-      - name: Configure AWS credentials (OIDC role or static keys)
-        id: creds
+      - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}   # e.g. arn:aws:iam::<acct>:role/GitHubOIDCDeploy
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Sanity check credentials
-        run: |
-          set -euo pipefail
-          aws sts get-caller-identity >/dev/null
+      - name: Sanity check caller identity
+        run: aws sts get-caller-identity
 
       - name: Package app
         run: |
