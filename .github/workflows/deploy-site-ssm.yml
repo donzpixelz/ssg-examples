@@ -25,7 +25,7 @@ jobs:
       have_ssm_id: ${{ steps.chk.outputs.have_ssm_id }}
     steps:
       - id: chk
-        name: Check for required role (values not shown)
+        name: Check required role (values not shown)
         env:
           ROLE1: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           ROLE2: ${{ secrets.AWS_OIDC_ROLE_ARN }}
@@ -231,6 +231,17 @@ jobs:
           echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
           echo "Uploaded s3://${BUCKET}/${KEY}"
 
+      - name: Generate presigned URL for artifact
+        id: presign
+        run: |
+          set -Eeuo pipefail
+          trap 'echo "ERR(presign) line $LINENO: $BASH_COMMAND" >&2' ERR
+          BUCKET="${{ steps.s3.outputs.bucket }}"
+          KEY="${{ steps.s3.outputs.key }}"
+          URL="$(aws s3 presign "s3://${BUCKET}/${KEY}" --expires-in 900)"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "Presigned OK"
+
       - name: Resolve target instance
         id: target
         run: |
@@ -251,22 +262,24 @@ jobs:
           fi
           echo "target=${TGT}" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy via SSM (diagnostic + wait + fetch logs)
+      - name: Deploy via SSM (use presigned URL) + wait + fetch logs
         env:
-          ARTIFACT_KEY: ${{ steps.s3.outputs.key }}
+          ART_URL: ${{ steps.presign.outputs.url }}
           ARTIFACT_BUCKET: ${{ steps.s3.outputs.bucket }}
+          ARTIFACT_KEY: ${{ steps.s3.outputs.key }}
           TARGET: ${{ steps.target.outputs.target }}
           SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
           trap 'echo "ERR(ssm) line $LINENO: $BASH_COMMAND" >&2' ERR
 
-          # Build remote script from a template then embed literal values for bucket/key/sha.
+          # Template remote script; embed URL and SHA literally.
           TEMPLATE="$(cat <<'EOS'
           set -euo pipefail
-          ARTIFACT_BUCKET="__BUCKET__"
-          ARTIFACT_KEY="__KEY__"
+          ART_URL="__URL__"
           SHA="__SHA__"
+          BUCKET_FYI="__BUCKET__"
+          KEY_FYI="__KEY__"
 
           get_docroot() {
             if command -v nginx >/dev/null 2>&1; then
@@ -282,8 +295,15 @@ jobs:
           WORK="$TMP/unpack"
           mkdir -p "$WORK"
 
-          echo "==> Downloading artifact"
-          aws s3 cp "s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY}" "$PKG"
+          echo "==> Downloading artifact via presigned URL"
+          if command -v curl >/dev/null 2>&1; then
+            curl -fL --retry 3 --retry-delay 2 "$ART_URL" -o "$PKG"
+          elif command -v wget >/dev/null 2>&1; then
+            wget -O "$PKG" "$ART_URL"
+          else
+            echo "Neither curl nor wget present on instance." >&2
+            exit 1
+          fi
 
           echo "==> Contents of artifact (top):"
           tar -tzf "$PKG" | head -n 20 || true
@@ -320,27 +340,25 @@ jobs:
           CURL_OUT="$(curl -sS -H "Cache-Control: no-cache" --max-time 5 http://127.0.0.1/ 2>&1 || true)"
           echo "$CURL_OUT" | head -n 20
 
-          echo "==> Effective docroot from nginx -T:"
-          if command -v nginx >/dev/null 2>&1; then
-            sudo nginx -T 2>/dev/null | sed -n "1,120p" | grep -E "server_name _|root /" -n || true
-          fi
-
           echo "===== DIAGNOSTIC SUMMARY ====="
           echo "DOCROOT=$DOCROOT"
           echo "HAS_INDEX_FILE=$([ -f "$DOCROOT/index.html" ] && echo 1 || echo 0)"
           echo "HAS_STAMP=$([ -f "$DOCROOT/_deploy.txt" ] && echo 1 || echo 0)"
           echo "LOCALHOST_CURL_LEN=$(printf "%s" "$CURL_OUT" | wc -c | awk "{print \$1}")"
+          echo "BUCKET_FYI=$BUCKET_FYI"
+          echo "KEY_FYI=$KEY_FYI"
           echo "=============================="
 
           rm -rf "$TMP"
           EOS
           )"
 
-          # Embed literal values (no reliance on remote env)
           REMOTE_SCRIPT="$TEMPLATE"
+          # Embed literal values (quote-safe)
+          REMOTE_SCRIPT="${REMOTE_SCRIPT//__URL__/$ART_URL}"
+          REMOTE_SCRIPT="${REMOTE_SCRIPT//__SHA__/$SHA}"
           REMOTE_SCRIPT="${REMOTE_SCRIPT//__BUCKET__/$ARTIFACT_BUCKET}"
           REMOTE_SCRIPT="${REMOTE_SCRIPT//__KEY__/$ARTIFACT_KEY}"
-          REMOTE_SCRIPT="${REMOTE_SCRIPT//__SHA__/$SHA}"
 
           # Create JSON param for SSM
           jq -n --arg cmd "$REMOTE_SCRIPT" '{commands: [$cmd]}' > params.json
@@ -349,7 +367,7 @@ jobs:
           CID="$(aws ssm send-command \
             --instance-ids "$TARGET" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy with embedded vars ${SHA}" \
+            --comment "Deploy via presigned URL ${SHA}" \
             --parameters file://params.json \
             --region "${AWS_REGION}" \
             --query "Command.CommandId" --output text)"
