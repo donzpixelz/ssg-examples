@@ -7,7 +7,7 @@ set -euo pipefail
 
 MSG="${1:-site: update}"
 
-# ---- optional log ----
+# ---- lightweight log ----
 LOG="/tmp/deploy_site_now.log"
 { echo; echo "===== $(date +'%Y-%m-%d %H:%M:%S') :: deploy_site_now START ====="; } >>"$LOG"
 exec > >(tee -a "$LOG") 2>&1
@@ -45,10 +45,7 @@ fi
 
 echo "⬇️  Fetch & rebase..."
 git fetch origin
-git pull --rebase origin "$CURBR" || {
-  echo "❌ Rebase failed. Resolve conflicts, then re-run."
-  exit 1
-}
+git pull --rebase origin "$CURBR" || { echo "❌ Rebase failed. Resolve conflicts, then re-run."; exit 1; }
 
 echo "⬆️  Push..."
 git push -u origin "$CURBR"
@@ -62,32 +59,17 @@ else
   echo "⚠️  GitHub CLI ('gh') not found; skipping workflow trigger."
 fi
 
-# ---- OPEN THE REPO ACTIONS TAB EXACTLY (/actions) ----
-# Prefer gh to get owner/repo; fallback to parsing origin URL.
-REPO_PATH=""
-if command -v gh >/dev/null 2>&1; then
-  REPO_PATH="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
-fi
-if [[ -z "$REPO_PATH" ]]; then
-  ORIGIN_URL="$(git remote get-url origin)"
-  # Normalize to owner/repo (strip protocol/ssh prefix and .git)
-  REPO_PATH="$(printf '%s\n' "$ORIGIN_URL" \
-    | sed -E 's#\.git$##; s#^git@github\.com:##; s#^https?://github\.com/##' \
-    | cut -d/ -f1-2)"
-fi
-
-if [[ -n "$REPO_PATH" ]]; then
-  ACTIONS_URL="https://github.com/${REPO_PATH}/actions"
-  echo "🌐 Opening Actions tab: ${ACTIONS_URL}"
-  if command -v open >/dev/null 2>&1; then
-    open "$ACTIONS_URL" || true
-  elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$ACTIONS_URL" || true
-  else
-    echo "🔗 ${ACTIONS_URL}"
-  fi
+# ---- OPEN THE EXACT ACTIONS TAB (hard-coded to your repo as requested) ----
+ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
+echo "🌐 Opening Actions tab: ${ACTIONS_URL}"
+if [ -x /usr/bin/open ]; then
+  /usr/bin/open "$ACTIONS_URL" || true
+elif command -v open >/dev/null 2>&1; then
+  open "$ACTIONS_URL" || true
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$ACTIONS_URL" || true
 else
-  echo "ℹ️  Could not determine repo slug; open your repo’s Actions tab manually."
+  echo "🔗 ${ACTIONS_URL}"
 fi
 
 echo "✅ Done: committed/pushed, dispatched workflow, opened the Actions tab."
