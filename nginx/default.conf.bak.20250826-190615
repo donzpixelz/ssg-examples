@@ -35,9 +35,3 @@ server {
     try_files $uri $uri/ /astro/index.html;
   }
 }
-
-location ^~ /hugo/ {
-    root /usr/share/nginx/html;
-    try_files $uri $uri/index.html /hugo/index.html /hugo/public/index.html;
-    autoindex off;
-}

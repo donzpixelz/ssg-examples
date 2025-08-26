@@ -1,6 +1,3 @@
 baseURL = "/hugo/"
-title = "ssg-examples: Hugo"
+title = "Hugo Site"
 languageCode = "en-us"
-paginate = 5
-# Keep absolute URLs off; relative links + baseURL work under /hugo/
-canonifyURLs = false
