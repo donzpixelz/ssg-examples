@@ -1,12 +1,12 @@
-name: Deploy site (SSM + OIDC + S3, fixed bucket, credential handoff)
+name: Deploy site (SSM + OIDC + S3)
 
 on:
   push:
     branches: [ "main" ]
     paths:
       - 'app/**'
-      - 'nginx/**'
       - '.github/workflows/deploy-site-ssm.yml'
+      - 'nginx/**'
   workflow_dispatch:
 
 concurrency:
@@ -15,35 +15,57 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build, upload to S3, deploy via SSM
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
-      AWS_ROLE_TO_ASSUME: arn:aws:iam::953331331353:role/GitHubActions-ssg-examples-ssh
-      ARTIFACT_S3_BUCKET: ssg-examples-artifacts-953331331353-us-east-2
+      # Optionally set these in repo Settings → Secrets/Variables
+      AWS_REGION: ${{ secrets.AWS_REGION || vars.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      ARTIFACT_S3_BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET }}
+
+      # Safe fallbacks (used only if the above are empty)
+      FALLBACK_AWS_REGION: us-east-2
+      FALLBACK_ROLE_ARN: arn:aws:iam::953331331353:role/GitHubActions-ssg-examples-ssh
+      FALLBACK_BUCKET: ssg-examples-artifacts-953331331353-us-east-2
+
+      # Instance selection (prefer EC2_INSTANCE_ID secret; else Name tag)
       NAME_TAG: ssg-examples
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Toolchains for optional SSGs
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # Build toolchains for optional SSGs (kept as-is)
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Setup Ruby (for Jekyll)
-        uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
           bundler-cache: true
-      - name: Setup Hugo (extended)
-        uses: peaceiris/actions-hugo@v3
+      - uses: peaceiris/actions-hugo@v3
         with:
           hugo-version: '0.128.2'
           extended: true
+
+      - name: Resolve settings (region / role / bucket) with fallbacks
+        id: resolve
+        run: |
+          set -euo pipefail
+          REGION="${AWS_REGION:-${FALLBACK_AWS_REGION}}"
+          ROLE="${AWS_ROLE_TO_ASSUME:-${FALLBACK_ROLE_ARN}}"
+          BUCKET="${ARTIFACT_S3_BUCKET:-${FALLBACK_BUCKET}}"
+
+          echo "region=$REGION" >> "$GITHUB_OUTPUT"
+          echo "role=$ROLE"     >> "$GITHUB_OUTPUT"
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+
+          echo "── Deploy config ──" >> "$GITHUB_STEP_SUMMARY"
+          echo "Region:  $REGION"   >> "$GITHUB_STEP_SUMMARY"
+          echo "Role:    $ROLE"     >> "$GITHUB_STEP_SUMMARY"
+          echo "Bucket:  $BUCKET"   >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build app + optional SSGs (/jekyll,/hugo,/eleventy,/astro)
         run: |
@@ -52,6 +74,7 @@ jobs:
           rm -rf "$BUILD"; mkdir -p "$BUILD"
           rsync -av --delete app/ "$BUILD"/
 
+          # Jekyll
           if [ -d app/jekyll ] && { [ -f app/jekyll/_config.yml ] || [ -f app/jekyll/Gemfile ]; }; then
             pushd app/jekyll >/dev/null
             if [ -f Gemfile ]; then
@@ -64,12 +87,14 @@ jobs:
             popd >/dev/null
           fi
 
+          # Hugo
           if [ -d app/hugo ] && ls app/hugo/config.* >/dev/null 2>&1; then
             pushd app/hugo >/dev/null
             hugo --destination "$GITHUB_WORKSPACE/$BUILD/hugo"
             popd >/dev/null
           fi
 
+          # Eleventy
           if [ -d app/eleventy ] && { grep -q '"@11ty/eleventy"' app/eleventy/package.json 2>/dev/null || ls app/eleventy/.eleventy.* >/dev/null 2>&1; }; then
             pushd app/eleventy >/dev/null
             if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
@@ -77,6 +102,7 @@ jobs:
             popd >/dev/null
           fi
 
+          # Astro
           if [ -d app/astro ] && grep -q '"astro"' app/astro/package.json 2>/dev/null; then
             pushd app/astro >/dev/null
             if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
@@ -93,20 +119,20 @@ jobs:
       - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ steps.resolve.outputs.role }}
+          aws-region: ${{ steps.resolve.outputs.region }}
 
-      - name: Ensure jq
+      - name: Ensure jq on runner
         run: |
           set -euo pipefail
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -y && sudo apt-get install -y jq
           fi
 
-      - name: Upload tarball to S3 (fixed bucket)
+      - name: Upload tarball to S3
         id: s3
         env:
-          BUCKET: ${{ env.ARTIFACT_S3_BUCKET }}
+          BUCKET: ${{ steps.resolve.outputs.bucket }}
         run: |
           set -Eeuo pipefail
           trap 'echo "ERR(upload) line $LINENO: $BASH_COMMAND" >&2' ERR
@@ -122,38 +148,40 @@ jobs:
           set -euo pipefail
           if [ -n "${{ secrets.EC2_INSTANCE_ID }}" ]; then
             IID="${{ secrets.EC2_INSTANCE_ID }}"
+            SRC="EC2_INSTANCE_ID secret"
           else
             IID="$(aws ec2 describe-instances \
               --filters "Name=tag:Name,Values=${{ env.NAME_TAG }}" "Name=instance-state-name,Values=running" \
               --query "Reservations[].Instances[].InstanceId" --output text | head -n1 || true)"
+            SRC="tag:Name=${{ env.NAME_TAG }}"
           fi
-          [ -n "$IID" ] || { echo "❌ No running instance found (need EC2_INSTANCE_ID or Name=${{ env.NAME_TAG }})" >&2; exit 1; }
+          [ -n "$IID" ] || { echo "❌ No running instance found via $SRC" >&2; exit 1; }
           echo "instance_id=$IID" >> "$GITHUB_OUTPUT"
+          echo "Target: $IID ($SRC)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Deploy via SSM (use runner creds on EC2 to read S3) + diagnostics
+      - name: Deploy via SSM (reuse runner OIDC creds for S3 download) + diagnostics
         env:
+          REGION: ${{ steps.resolve.outputs.region }}
           TARGET: ${{ steps.target.outputs.instance_id }}
           BUCKET: ${{ steps.s3.outputs.bucket }}
           KEY:    ${{ steps.s3.outputs.key }}
           SHA:    ${{ github.sha }}
-          AWS_REGION: ${{ env.AWS_REGION }}
         run: |
           set -Eeuo pipefail
           trap 'echo "ERR(ssm) line $LINENO: $BASH_COMMAND" >&2' ERR
 
-          # Capture runner's temporary AWS creds, base64 to avoid quoting issues
+          # Hand off runner creds (short-lived) to remote
           AKID_B64="$(printf '%s' "$AWS_ACCESS_KEY_ID" | base64 | tr -d '\n')"
           ASEC_B64="$(printf '%s' "$AWS_SECRET_ACCESS_KEY" | base64 | tr -d '\n')"
           ATOK_B64="$(printf '%s' "$AWS_SESSION_TOKEN" | base64 | tr -d '\n')"
-          AREG_B64="$(printf '%s' "$AWS_REGION" | base64 | tr -d '\n')"
+          AREG_B64="$(printf '%s' "$REGION" | base64 | tr -d '\n')"
 
           TEMPLATE="$(cat <<'EOS'
           set -euo pipefail
-          # Injected, base64-decoded runner creds (short-lived) to avoid EC2 role 403
-          export AWS_ACCESS_KEY_ID="$(printf %s "__AKID_B64__" | base64 -d)"
-          export AWS_SECRET_ACCESS_KEY="$(printf %s "__ASEC_B64__" | base64 -d)"
-          export AWS_SESSION_TOKEN="$(printf %s "__ATOK_B64__" | base64 -d)"
-          export AWS_DEFAULT_REGION="$(printf %s "__AREG_B64__" | base64 -d)"
+          export AWS_ACCESS_KEY_ID="$(printf %s "__AK__" | base64 -d)"
+          export AWS_SECRET_ACCESS_KEY="$(printf %s "__SK__" | base64 -d)"
+          export AWS_SESSION_TOKEN="$(printf %s "__TK__" | base64 -d)"
+          export AWS_DEFAULT_REGION="$(printf %s "__RG__" | base64 -d)"
 
           ARTIFACT_BUCKET="__BUCKET__"
           ARTIFACT_KEY="__KEY__"
@@ -186,13 +214,10 @@ jobs:
           echo "==> Ensure SSG subdirs exist"
           for d in jekyll hugo eleventy astro; do sudo mkdir -p "$DOCROOT/$d"; done
 
-          echo "==> Nginx test & reload (if present)"
+          echo "==> nginx test/reload"
           if command -v nginx >/dev/null 2>&1; then
             sudo nginx -t && (sudo systemctl reload nginx || sudo nginx -s reload || true)
           fi
-
-          echo "==> Listing DOCROOT (top)"
-          sudo ls -lah "$DOCROOT" | sed -n "1,80p" || true
 
           echo "===== DIAGNOSTIC SUMMARY ====="
           echo "BUCKET_USED=$ARTIFACT_BUCKET"
@@ -205,47 +230,43 @@ jobs:
           EOS
           )"
 
-          REMOTE_SCRIPT="$TEMPLATE"
-          REMOTE_SCRIPT="${REMOTE_SCRIPT//__AKID_B64__/$AKID_B64}"
-          REMOTE_SCRIPT="${REMOTE_SCRIPT//__ASEC_B64__/$ASEC_B64}"
-          REMOTE_SCRIPT="${REMOTE_SCRIPT//__ATOK_B64__/$ATOK_B64}"
-          REMOTE_SCRIPT="${REMOTE_SCRIPT//__AREG_B64__/$AREG_B64}"
-          REMOTE_SCRIPT="${REMOTE_SCRIPT//__BUCKET__/$BUCKET}"
-          REMOTE_SCRIPT="${REMOTE_SCRIPT//__KEY__/$KEY}"
-          REMOTE_SCRIPT="${REMOTE_SCRIPT//__SHA__/$SHA}"
+          RS="$TEMPLATE"
+          RS="${RS//__AK__/$AKID_B64}"
+          RS="${RS//__SK__/$ASEC_B64}"
+          RS="${RS//__TK__/$ATOK_B64}"
+          RS="${RS//__RG__/$AREG_B64}"
+          RS="${RS//__BUCKET__/$BUCKET}"
+          RS="${RS//__KEY__/$KEY}"
+          RS="${RS//__SHA__/$SHA}"
 
-          jq -n --arg cmd "$REMOTE_SCRIPT" '{commands: [$cmd]}' > params.json
+          jq -n --arg cmd "$RS" '{commands: [$cmd]}' > params.json
 
           CID="$(aws ssm send-command \
             --instance-ids "$TARGET" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Deploy ssg-examples ${SHA}" \
+            --document-name 'AWS-RunShellScript' \
+            --comment "Deploy ${SHA}" \
             --parameters file://params.json \
-            --region "${AWS_REGION}" \
-            --query "Command.CommandId" --output text)"
+            --region "$REGION" \
+            --query 'Command.CommandId' --output text)"
           echo "SSM CommandId: $CID"
 
           # Wait and print logs
           while true; do
-            STATUS="$(aws ssm get-command-invocation --instance-id "$TARGET" --command-id "$CID" --query 'Status' --output text 2>/dev/null || echo 'Unknown')"
+            STATUS="$(aws ssm get-command-invocation --instance-id "$TARGET" --command-id "$CID" --query 'Status' --output text 2>/dev/null || echo unknown)"
             echo "SSM status: $STATUS"
             case "$STATUS" in
               Success) break ;;
-              Failed|Cancelled|TimedOut) echo "❌ SSM Run Command failed: $STATUS"; break ;;
+              Failed|Cancelled|TimedOut) echo "❌ SSM failed: $STATUS"; break ;;
               *) sleep 4 ;;
             esac
           done
 
-          OUT_JSON="$(aws ssm get-command-invocation --instance-id "$TARGET" --command-id "$CID" --plugin-name 'aws:runShellScript' --output json 2>/dev/null || echo '{}')"
-          echo "----- Remote STDOUT (first 200 lines) -----"
-          echo "$OUT_JSON" | jq -r '.StandardOutputContent // ""' | sed -n '1,200p'
-          echo "----- Remote STDERR (first 200 lines) -----"
-          echo "$OUT_JSON" | jq -r '.StandardErrorContent // ""' | sed -n '1,200p'
+          OUT="$(aws ssm get-command-invocation --instance-id "$TARGET" --command-id "$CID" --plugin-name 'aws:runShellScript' --output json 2>/dev/null || echo '{}')"
+          echo "----- Remote STDOUT (first 120 lines) -----"
+          echo "$OUT" | jq -r '.StandardOutputContent // ""' | sed -n '1,120p'
+          echo "----- Remote STDERR (first 120 lines) -----"
+          echo "$OUT" | jq -r '.StandardErrorContent // ""' | sed -n '1,120p'
 
-          FINAL_STATUS="$(echo "$OUT_JSON" | jq -r '.Status // empty')"
-          if [ "$FINAL_STATUS" != "Success" ]; then
-            echo "❌ Final SSM plugin status: ${FINAL_STATUS:-unknown}"
-            exit 1
-          fi
-
+          FINAL="$(echo "$OUT" | jq -r '.Status // empty')"
+          [ "$FINAL" = "Success" ] || { echo "❌ Final SSM plugin status: ${FINAL:-unknown}"; exit 1; }
           echo "✅ Remote deploy completed."
