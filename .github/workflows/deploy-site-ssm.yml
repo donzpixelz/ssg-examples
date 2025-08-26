@@ -18,34 +18,104 @@ jobs:
     name: Build & package site
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - uses: ruby/setup-ruby@v1
+      - name: Setup Ruby (for Jekyll)
+        uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
           bundler-cache: true
 
-      - uses: peaceiris/actions-hugo@v3
+      - name: Setup Hugo (extended)
+        uses: peaceiris/actions-hugo@v3
         with:
           hugo-version: '0.128.2'
           extended: true
 
-      - name: Build site + SSGs
+      - name: Build SSGs if present (under app/*)
         run: |
           set -euo pipefail
           BUILD_ROOT="__deploy_root"
-          rm -rf "$BUILD_ROOT" && mkdir -p "$BUILD_ROOT"
-          rsync -av app/ "$BUILD_ROOT"/
-          # (builders for jekyll/hugo/eleventy/astro left as before)
+          rm -rf "$BUILD_ROOT"
+          mkdir -p "$BUILD_ROOT"
+
+          echo "▶ Copy root site from app/ → $BUILD_ROOT/"
+          rsync -av --delete app/ "$BUILD_ROOT"/
+
+          # Jekyll
+          if [ -d "app/jekyll" ] && { [ -f "app/jekyll/_config.yml" ] || [ -f "app/jekyll/Gemfile" ]; }; then
+            echo "▶ Building Jekyll..."
+            pushd app/jekyll >/dev/null
+            if [ -f Gemfile ]; then
+              bundle install --path vendor/bundle
+              JEKYLL_ENV=production bundle exec jekyll build -d "$GITHUB_WORKSPACE/$BUILD_ROOT/jekyll"
+            else
+              gem install jekyll bundler --no-document
+              JEKYLL_ENV=production jekyll build -d "$GITHUB_WORKSPACE/$BUILD_ROOT/jekyll"
+            fi
+            popd >/dev/null
+          else
+            echo "ℹ️ app/jekyll not configured; keeping placeholder (if any)."
+          fi
+
+          # Hugo
+          if [ -d "app/hugo" ] && ls app/hugo/config.* >/dev/null 2>&1; then
+            echo "▶ Building Hugo..."
+            pushd app/hugo >/dev/null
+            hugo --destination "$GITHUB_WORKSPACE/$BUILD_ROOT/hugo"
+            popd >/dev/null
+          else
+            echo "ℹ️ app/hugo not configured; keeping placeholder (if any)."
+          fi
+
+          # Eleventy
+          if [ -d "app/eleventy" ] && { grep -q '"@11ty/eleventy"' app/eleventy/package.json 2>/dev/null || ls app/eleventy/.eleventy.* >/dev/null 2>&1; }; then
+            echo "▶ Building Eleventy..."
+            pushd app/eleventy >/dev/null
+            if [ -f package-lock.json ]; then
+              npm ci
+            elif [ -f pnpm-lock.yaml ]; then
+              npm i -g pnpm && pnpm i
+            else
+              npm install
+            fi
+            npx @11ty/eleventy --output "$GITHUB_WORKSPACE/$BUILD_ROOT/eleventy"
+            popd >/dev/null
+          else
+            echo "ℹ️ app/eleventy not configured; keeping placeholder (if any)."
+          fi
+
+          # Astro
+          if [ -d "app/astro" ] && grep -q '"astro"' app/astro/package.json 2>/dev/null; then
+            echo "▶ Building Astro..."
+            pushd app/astro >/dev/null
+            if [ -f package-lock.json ]; then
+              npm ci
+            elif [ -f pnpm-lock.yaml ]; then
+              npm i -g pnpm && pnpm i
+            else
+              npm install
+            fi
+            npx astro build --outDir "$GITHUB_WORKSPACE/$BUILD_ROOT/astro"
+            popd >/dev/null
+          else
+            echo "ℹ️ app/astro not configured; keeping placeholder (if any)."
+          fi
 
       - name: Package site
-        run: tar -czf site.tgz -C "__deploy_root" .
+        run: |
+          set -euo pipefail
+          tar -czf site.tgz -C "__deploy_root" .
+          ls -lh site.tgz
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: built-site
           path: site.tgz
@@ -54,62 +124,95 @@ jobs:
   deploy:
     name: Deploy to EC2 via SSM
     needs: build
-    if: ${{ secrets.AWS_OIDC_ROLE_ARN != '' && secrets.ARTIFACT_S3_BUCKET != '' }}
+    # IMPORTANT: job-level if must NOT reference secrets.* directly.
+    # We map secrets → env below, and gate on env.* here.
+    if: ${{ env.AWS_ROLE_TO_ASSUME != '' && env.ARTIFACT_S3_BUCKET != '' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     env:
+      # Map your secrets into job env. We prefer your AWS_ROLE_TO_ASSUME; fallback to AWS_OIDC_ROLE_ARN if present.
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME || secrets.AWS_OIDC_ROLE_ARN || '' }}
+      ARTIFACT_S3_BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET || '' }}
       AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
-      ARTIFACT_S3_BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET }}
-      SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
-      AWS_OIDC_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+      # Instance selection: prefer your EC2_INSTANCE_ID; fallback to SSM_INSTANCE_ID; else lookup by tag.
+      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID || '' }}
+      SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID || '' }}
       EC2_TAG_NAME: ssg-examples
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download artifact
+        uses: actions/download-artifact@v4
         with:
           name: built-site
           path: .
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.AWS_OIDC_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Upload to S3
+      - name: Upload tarball to S3
         id: s3
         run: |
+          set -euo pipefail
           KEY="deploys/${GITHUB_RUN_ID}/site.tgz"
-          aws s3 cp site.tgz "s3://${ARTIFACT_S3_BUCKET}/${KEY}"
+          aws s3 cp site.tgz "s3://${ARTIFACT_S3_BUCKET}/${KEY}" --only-show-errors
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+          echo "Uploaded s3://${ARTIFACT_S3_BUCKET}/${KEY}"
 
-      - name: Resolve instance
-        id: ssm
+      - name: Resolve target instance
+        id: target
         run: |
-          if [ -n "${SSM_INSTANCE_ID:-}" ]; then
-            echo "target=$SSM_INSTANCE_ID" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -n "${EC2_INSTANCE_ID:-}" ]; then
+            TGT="$EC2_INSTANCE_ID"
+            echo "Using EC2_INSTANCE_ID secret: $TGT"
+          elif [ -n "${SSM_INSTANCE_ID:-}" ]; then
+            TGT="$SSM_INSTANCE_ID"
+            echo "Using SSM_INSTANCE_ID secret: $TGT"
           else
-            ID=$(aws ec2 describe-instances \
+            echo "Looking up instance by tag Name=${EC2_TAG_NAME}..."
+            TGT="$(aws ec2 describe-instances \
               --filters "Name=tag:Name,Values=${EC2_TAG_NAME}" "Name=instance-state-name,Values=running" \
-              --query "Reservations[].Instances[].InstanceId" --output text | head -n1)
-            echo "target=$ID" >> "$GITHUB_OUTPUT"
+              --query "Reservations[].Instances[].InstanceId" --output text | head -n1 || true)"
+            [ -n "$TGT" ] || { echo "No running instance tagged Name=${EC2_TAG_NAME} found." >&2; exit 1; }
+          fi
+          echo "target=${TGT}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure jq (for JSON params)
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
           fi
 
-      - name: Deploy via SSM
+      - name: Deploy via SSM (inline)
+        env:
+          ARTIFACT_KEY: ${{ steps.s3.outputs.key }}
+          TARGET: ${{ steps.target.outputs.target }}
         run: |
-          read -r -d '' SCRIPT <<'EOS'
+          set -euo pipefail
+          read -r -d '' REMOTE_SCRIPT <<'EOS'
           set -euo pipefail
           TMP="$(mktemp -d)"
-          aws s3 cp "s3://${ARTIFACT_S3_BUCKET}/${{ steps.s3.outputs.key }}" "$TMP/site.tgz"
-          sudo tar -xzf "$TMP/site.tgz" -C /usr/share/nginx/html
-          for d in jekyll hugo eleventy astro; do
-            sudo mkdir -p "/usr/share/nginx/html/$d"
-          done
-          sudo nginx -t && (sudo systemctl reload nginx || sudo nginx -s reload || true)
+          DEST="/usr/share/nginx/html"
+          aws s3 cp "s3://${ARTIFACT_S3_BUCKET}/${ARTIFACT_KEY}" "$TMP/site.tgz"
+          sudo mkdir -p "$DEST"
+          sudo tar -xzf "$TMP/site.tgz" -C "$DEST"
+          for d in jekyll hugo eleventy astro; do sudo mkdir -p "$DEST/$d"; done
+          if command -v nginx >/dev/null 2>&1; then
+            if sudo nginx -t; then sudo systemctl reload nginx || sudo nginx -s reload || true; fi
+          fi
           rm -rf "$TMP"
+          echo "Deployed to $DEST at $(date -u +%FT%TZ)"
           EOS
-          jq -n --arg cmd "$SCRIPT" '{commands:[$cmd]}' > params.json
+          jq -n --arg cmd "$REMOTE_SCRIPT" '{commands:[$cmd]}' > params.json
           aws ssm send-command \
-            --instance-ids "${{ steps.ssm.outputs.target }}" \
+            --instance-ids "$TARGET" \
             --document-name "AWS-RunShellScript" \
-            --parameters file://params.json
+            --parameters file://params.json \
+            --region "${AWS_REGION}" \
+            --output text >/dev/null
