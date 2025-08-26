@@ -39,22 +39,18 @@ jobs:
           has_role=0; role_src=""
           if [ -n "${ROLE1:-}" ]; then has_role=1; role_src="AWS_ROLE_TO_ASSUME"; fi
           if [ "$has_role" = 0 ] && [ -n "${ROLE2:-}" ]; then has_role=1; role_src="AWS_OIDC_ROLE_ARN"; fi
-
-          has_bucket=0
-          [ -n "${BUCKET:-}" ] && has_bucket=1
-
+          has_bucket=0; [ -n "${BUCKET:-}" ] && has_bucket=1
           region="${REGION:-us-east-2}"
-
           have_ec2_id=0; [ -n "${EC2ID:-}" ] && have_ec2_id=1
           have_ssm_id=0; [ -n "${SSMID:-}" ] && have_ssm_id=1
-
-          echo "has_role=$has_role"        >> "$GITHUB_OUTPUT"
-          echo "has_bucket=$has_bucket"    >> "$GITHUB_OUTPUT"
-          echo "role_source=$role_src"     >> "$GITHUB_OUTPUT"
-          echo "region=$region"            >> "$GITHUB_OUTPUT"
-          echo "have_ec2_id=$have_ec2_id"  >> "$GITHUB_OUTPUT"
-          echo "have_ssm_id=$have_ssm_id"  >> "$GITHUB_OUTPUT"
-
+          {
+            echo "has_role=$has_role"
+            echo "has_bucket=$has_bucket"
+            echo "role_source=$role_src"
+            echo "region=$region"
+            echo "have_ec2_id=$have_ec2_id"
+            echo "have_ssm_id=$have_ssm_id"
+          } >> "$GITHUB_OUTPUT"
           echo "──────────────── DIAGNOSIS ────────────────"
           echo "• Role secret present?         $has_role (source=$role_src)"
           echo "• Artifact S3 bucket present?  $has_bucket"
@@ -76,7 +72,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # No root-level lockfile cache to avoid 'lockfile not found' noise
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -131,7 +126,7 @@ jobs:
           # Eleventy
           if [ -d "app/eleventy" ] && { grep -q '"@11ty/eleventy"' app/eleventy/package.json 2>/dev/null || ls app/eleventy/.eleventy.* >/dev/null 2>&1; }; then
             echo "▶ Building Eleventy..."
-            pushd app/eleventy >/dev/null
+            pushd app/eleventy >/div/null 2>/dev/null || pushd app/eleventy >/dev/null
             if [ -f package-lock.json ]; then
               npm ci
             elif [ -f pnpm-lock.yaml ]; then
@@ -178,18 +173,15 @@ jobs:
   deploy:
     name: Deploy to EC2 via SSM
     needs: [ diagnose, build ]
-    # Gate with outputs from 'diagnose' (strings)
     if: ${{ needs.diagnose.outputs.has_role == '1' && needs.diagnose.outputs.has_bucket == '1' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     env:
-      # Map secrets into env (prefer your names; fallback to OIDC ARN)
       AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME || secrets.AWS_OIDC_ROLE_ARN || '' }}
       ARTIFACT_S3_BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET || '' }}
       AWS_REGION: ${{ needs.diagnose.outputs.region }}
-      # Instance selection: prefer EC2_INSTANCE_ID; fallback to SSM_INSTANCE_ID; else tag lookup.
       EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID || '' }}
       SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID || '' }}
       EC2_TAG_NAME: ssg-examples
@@ -234,38 +226,59 @@ jobs:
           fi
           echo "target=${TGT}" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure jq (for JSON params)
-        run: |
-          set -euo pipefail
-          if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y jq
-          fi
-
-      - name: Deploy via SSM (inline)
+      - name: Deploy via SSM and wait for completion
         env:
           ARTIFACT_KEY: ${{ steps.s3.outputs.key }}
           TARGET: ${{ steps.target.outputs.target }}
         run: |
           set -euo pipefail
+
+          # Remote script: extract to temp, then rsync --delete into /usr/share/nginx/html; reload nginx
           read -r -d '' REMOTE_SCRIPT <<'EOS'
           set -euo pipefail
           TMP="$(mktemp -d)"
           DEST="/usr/share/nginx/html"
-          aws s3 cp "s3://${ARTIFACT_S3_BUCKET}/${ARTIFACT_KEY}" "$TMP/site.tgz"
+          PKG="$TMP/site.tgz"
+          WORK="$TMP/unpack"
+          mkdir -p "$WORK"
+          aws s3 cp "s3://${ARTIFACT_S3_BUCKET}/${ARTIFACT_KEY}" "$PKG"
+          tar -xzf "$PKG" -C "$WORK"
           sudo mkdir -p "$DEST"
-          sudo tar -xzf "$TMP/site.tgz" -C "$DEST"
+          # Hard-sync: remove files that no longer exist
+          sudo rsync -av --delete "$WORK"/ "$DEST"/
           for d in jekyll hugo eleventy astro; do sudo mkdir -p "$DEST/$d"; done
           if command -v nginx >/dev/null 2>&1; then
             if sudo nginx -t; then sudo systemctl reload nginx || sudo nginx -s reload || true; fi
           fi
+          # quick prove-out
+          echo "Deployed at $(date -u +%FT%TZ). Index head:"
+          sudo head -n 5 "$DEST/index.html" 2>/dev/null || true
           rm -rf "$TMP"
-          echo "Deployed to $DEST at $(date -u +%FT%TZ)"
           EOS
-          jq -n --arg cmd "$REMOTE_SCRIPT" '{commands:[$cmd]}' > params.json
-          aws ssm send-command \
+
+          # Send command and capture CommandId
+          CID="$(aws ssm send-command \
             --instance-ids "$TARGET" \
             --document-name "AWS-RunShellScript" \
-            --parameters file://params.json \
+            --parameters commands="$REMOTE_SCRIPT" \
+            --comment "Deploy ssg-examples ${GITHUB_SHA}" \
             --region "${AWS_REGION}" \
-            --output text >/dev/null
+            --query 'Command.CommandId' --output text)"
+
+          echo "SSM CommandId: $CID"
+
+          # Poll until finished
+          while true; do
+            STATUS="$(aws ssm get-command-invocation \
+              --instance-id "$TARGET" --command-id "$CID" \
+              --query 'Status' --output text 2>/dev/null || echo "Unknown")"
+            echo "SSM status: $STATUS"
+            case "$STATUS" in
+              Success) break ;;
+              Failed|Cancelled|TimedOut) echo "❌ SSM Run Command failed: $STATUS"; exit 1 ;;
+              InProgress|Pending|Delayed|DeliveryTimedOut|ExecutionTimedOut|Cancelling) sleep 5 ;;
+              *) sleep 3 ;;
+            esac
+          done
+
+          echo "✅ Remote deploy completed."
