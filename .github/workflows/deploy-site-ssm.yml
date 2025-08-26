@@ -101,20 +101,20 @@ jobs:
           [ -n "$ids" ] || { echo "❌ No instance IDs found"; exit 12; }
           echo "IDS=$ids" >> "$GITHUB_OUTPUT"
 
-      - name: SSM dispatch (inline deploy) and wait for completion
+      - name: SSM dispatch (inline deploy) — with quoted URL — and wait
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           IDS: ${{ steps.ids.outputs.IDS }}
           APP_URL: ${{ env.APP_URL }}
         run: |
           set -euo pipefail
-          # jq is typically present, but ensure it
+          # ensure jq
           command -v jq >/dev/null 2>&1 || { sudo apt-get update -y && sudo apt-get install -y jq; }
 
-          # Array-ify IDS (space-separated)
+          # Convert space-separated IDs -> JSON array
           json_ids=$(printf '%s\n' $IDS | jq -R . | jq -s .)
 
-          # Build SSM commands to run everything inline on the instance
+          # Build commands with the URL safely quoted via jq @sh (shell-escaped)
           jq -n --argjson arr "$json_ids" --arg app "$APP_URL" '{
             DocumentName: "AWS-RunShellScript",
             InstanceIds: $arr,
@@ -126,7 +126,8 @@ jobs:
               "STAGE=$WORK/stage",
               "mkdir -p $STAGE",
               "echo [1/6] download",
-              ("curl -fsSL --retry 3 --retry-delay 2 -o $ARCH " + $app),
+              ("APP_URL=" + ($app|@sh)),
+              "curl -fsSL --retry 3 --retry-delay 2 -o $ARCH \"$APP_URL\"",
               "echo [2/6] validate",
               "tar -tzf $ARCH >/dev/null 2>&1",
               "echo [3/6] unpack",
@@ -148,10 +149,9 @@ jobs:
 
           echo "Dispatching to: $IDS"
           send_out=$(aws ssm send-command --region "$AWS_REGION" --cli-input-json file://payload.json)
-          echo "$send_out" | jq '.Command' > /tmp/ssm_command.json
           cmd_id=$(echo "$send_out" | jq -r '.Command.CommandId')
 
-          # Wait for each instance until Success/Failed, stream final output
+          # Wait & stream logs
           fail=0
           for iid in $IDS; do
             echo "Waiting for $iid (CommandId: $cmd_id)..."
@@ -168,12 +168,8 @@ jobs:
                 [ "$status" = "Success" ] || fail=1
                 break
               fi
-              if [ $i -eq 60 ]; then
-                echo "Timed out waiting for $iid"
-                fail=1
-              fi
+              [ $i -lt 60 ] || { echo "Timed out waiting for $iid"; fail=1; }
             done
           done
-
           [ $fail -eq 0 ] || { echo "❌ SSM reported failure."; exit 1; }
           echo "✅ SSM completed successfully."
