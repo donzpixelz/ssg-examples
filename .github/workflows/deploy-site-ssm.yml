@@ -53,7 +53,9 @@ jobs:
           fi
 
       - name: Package app
-        run: tar -czf app.tgz -C app .
+        run: |
+          set -euo pipefail
+          tar -czf app.tgz -C app .
 
       - name: Upload to S3 and presign
         run: |
@@ -64,69 +66,66 @@ jobs:
           echo "APP_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/app.tgz --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
           echo "RUN_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/run.sh  --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
 
-      - name: Resolve SSM target instances
-        id: targets
+      # ✅ Resolve targets AND send the SSM command in ONE step (no $GITHUB_ENV for instance IDs)
+      - name: Resolve SSM targets and dispatch
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
         run: |
           set -euo pipefail
+
+          # 1) Gather candidate instance IDs
+          NAME_TAG="ssg-examples"
+          PUBLIC_IP="18.220.33.0"
           pat='^(i-[a-f0-9]{8}|i-[a-f0-9]{17}|mi-[a-z0-9]{17})$'
-          from_secret="${{ secrets.SSM_INSTANCE_ID }}"
-          if [ -n "$from_secret" ] && [[ "$from_secret" =~ $pat ]]; then
-            ids="$from_secret"
+
+          ids_secret='${{ secrets.SSM_INSTANCE_ID }}'
+          ids=""
+
+          if [ -n "$ids_secret" ] && [[ "$ids_secret" =~ $pat ]]; then
+            ids="$ids_secret"
             echo "Using SSM_INSTANCE_ID secret: $ids"
           else
-            echo "Secret missing/invalid. Trying by Name tag: ssg-examples"
+            echo "Secret missing/invalid. Trying by Name tag: $NAME_TAG"
             ids=$(aws ec2 describe-instances --region "$AWS_REGION" \
-                  --filters "Name=tag:Name,Values=ssg-examples" "Name=instance-state-name,Values=running" \
+                  --filters "Name=tag:Name,Values=$NAME_TAG" "Name=instance-state-name,Values=running" \
                   --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' ' ' | xargs || true)
+
             if [ -z "$ids" ]; then
-              echo "No running instances found by tag. Trying public IP: 18.220.33.0"
+              echo "No running instances by tag. Trying public IP: $PUBLIC_IP"
               ids=$(aws ec2 describe-instances --region "$AWS_REGION" \
-                    --filters "Name=ip-address,Values=18.220.33.0" "Name=instance-state-name,Values=running" \
+                    --filters "Name=ip-address,Values=$PUBLIC_IP" "Name=instance-state-name,Values=running" \
                     --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' ' ' | xargs || true)
             fi
           fi
 
-          if [ -z "$ids" ]; then
-            echo "❌ Could not resolve any instance IDs"
-            exit 12
-          fi
+          [ -n "$ids" ] || { echo "❌ Could not resolve any instance IDs."; exit 12; }
 
+          # 2) Build JSON array safely (single-line)
           json_array="[]"
           for iid in $ids; do
             if [[ "$iid" =~ $pat ]]; then
               json_array=$(jq --arg v "$iid" '. + [ $v ]' <<<"$json_array")
             fi
           done
-          if [ "$json_array" = "[]" ]; then
-            echo "❌ No valid instance IDs after validation."
-            exit 13
-          fi
+          [ "$json_array" != "[]" ] || { echo "❌ No valid instance IDs after validation."; exit 13; }
 
-          echo "INSTANCE_IDS_JSON=$json_array" >> "$GITHUB_ENV"
-          echo "INSTANCE_IDS=$ids" >> "$GITHUB_ENV"
           echo "Resolved instances: $ids"
+          echo "JSON: $json_array"
 
-      - name: SSM run on EC2
-        run: |
-          set -euo pipefail
-          cat > payload.json <<JSON
-          {
-            "DocumentName": "AWS-RunShellScript",
-            "InstanceIds": ${INSTANCE_IDS_JSON},
-            "Parameters": {
-              "commands": [
-                "set -euo pipefail",
-                "curl -fsSL -o /tmp/run.sh ${RUN_URL}",
-                "chmod +x /tmp/run.sh",
-                "/tmp/run.sh ${APP_URL}"
-              ]
-            }
-          }
-          JSON
+          # 3) Build payload and dispatch
+          jq -n --argjson arr "$json_array" --arg run "$RUN_URL" --arg app "$APP_URL" '{
+            DocumentName: "AWS-RunShellScript",
+            InstanceIds: $arr,
+            Parameters: { commands: [
+              "set -euo pipefail",
+              "curl -fsSL -o /tmp/run.sh \($run)",
+              "chmod +x /tmp/run.sh",
+              "/tmp/run.sh \($app)"
+            ]}
+          }' > payload.json
+
           aws ssm send-command --cli-input-json file://payload.json --region "$AWS_REGION" >/dev/null
-          echo "SSM dispatched to: $INSTANCE_IDS"
+          echo "SSM dispatched."
 
       - name: Done
-        run: |
-          echo "Deployed OK. Opening Actions page..."
-          echo "https://github.com/donzpixelz/ssg-examples/actions"
+        run: echo "Deploy dispatched."
