@@ -1,12 +1,13 @@
 name: deploy-site-ssm
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
+      AWS_REGION: us-east-2
       DEPLOY_S3_BUCKET: ${{ secrets.DEPLOY_S3_BUCKET }}
       SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
 
@@ -19,41 +20,40 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Package ./app
+      - name: Package app
         run: |
           set -euo pipefail
-          tar -czf app.tgz -C ./app .
+          tar -czf app.tgz -C app .
 
       - name: Upload to S3 and presign
         run: |
           set -euo pipefail
-          REGION="us-east-2"
           KEY_PREFIX="examples/artifacts/${GITHUB_SHA}"
-          aws s3 cp app.tgz "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz" --region "$REGION"
-          aws s3 cp run.sh  "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh"  --region "$REGION"
-          APP_URL="$(aws s3 presign "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz" --region "$REGION" --expires-in 3600)"
-          RUN_URL="$(aws s3 presign "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh"  --region "$REGION" --expires-in 3600)"
-          echo "APP_URL=$APP_URL" >> "$GITHUB_ENV"
-          echo "RUN_URL=$RUN_URL" >> "$GITHUB_ENV"
+          aws s3 cp app.tgz "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz" --region "$AWS_REGION"
+          aws s3 cp run.sh  "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh"  --region "$AWS_REGION"
+          echo "APP_URL=$(aws s3 presign s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
+          echo "RUN_URL=$(aws s3 presign s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh  --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
 
-      - name: SSM: run deploy on EC2
+      - name: SSM run on EC2
         run: |
           set -euo pipefail
-          REGION="us-east-2"
-          # Safe JSON with jq
-          PAYLOAD="$(jq -nc --arg inst "${SSM_INSTANCE_ID}" --arg run "${RUN_URL}" --arg app "${APP_URL}" '{
-            DocumentName: "AWS-RunShellScript",
-            InstanceIds: [$inst],
-            Parameters: { commands: [
-              "set -euo pipefail",
-              "curl -fsSL -o /tmp/run.sh \($run)",
-              "chmod +x /tmp/run.sh",
-              "/tmp/run.sh \($app)"
-            ]}
-          }')"
-          aws ssm send-command --cli-input-json "$PAYLOAD" --region "$REGION" >/dev/null
+          cat > payload.json <<JSON
+          {
+            "DocumentName": "AWS-RunShellScript",
+            "InstanceIds": ["${SSM_INSTANCE_ID}"],
+            "Parameters": {
+              "commands": [
+                "set -euo pipefail",
+                "curl -fsSL -o /tmp/run.sh ${RUN_URL}",
+                "chmod +x /tmp/run.sh",
+                "/tmp/run.sh ${APP_URL}"
+              ]
+            }
+          }
+          JSON
+          aws ssm send-command --cli-input-json file://payload.json --region "$AWS_REGION" >/dev/null
 
       - name: Done
         run: echo "Dispatched deploy via SSM."
