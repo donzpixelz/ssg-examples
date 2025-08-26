@@ -21,11 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # No cache here — avoids lockfile error when root has no package-lock/yarn.lock
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Setup Ruby (for Jekyll)
         uses: ruby/setup-ruby@v1
@@ -197,7 +197,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Build the remote script (single string) safely
           read -r -d '' REMOTE_SCRIPT <<'EOS'
           set -euo pipefail
           TMP="$(mktemp -d)"
@@ -228,7 +227,6 @@ jobs:
           echo "Deployed to $DEST at $(date -u +%FT%TZ)"
           EOS
 
-          # Create JSON params file for SSM (avoids YAML/quote issues)
           jq -n --arg cmd "$REMOTE_SCRIPT" '{commands: [$cmd]}' > params.json
 
           aws ssm send-command \
