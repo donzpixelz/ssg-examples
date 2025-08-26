@@ -1,40 +1,47 @@
 #!/usr/bin/env bash
 # Full, copy-pasteable Bash file
-# File: ./deploy_site_now
+# Safe to run (will NOT auto-close your terminal)
+# File: deploy_site_now
 
 set -euo pipefail
+
 MSG="${1:-site: update}"
 
-# ---- repo root ----
-cd /Users/.projects/ssg-examples
+# --- go to repo root ---
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$ROOT" ] || { echo "❌ Not inside a git repository."; exit 1; }
+cd "$ROOT"
 
-echo "📁 Repo: $(pwd)"
+# --- find branch ---
 CURBR="$(git branch --show-current 2>/dev/null || true)"
-echo "🌿 Branch: $CURBR"
+[ -n "$CURBR" ] || { echo "❌ Cannot determine current branch."; exit 1; }
 
+# --- stage, commit if needed, sync, push ---
 git add -A
-if git diff --cached --quiet; then
-  echo "ℹ️  No local changes to commit."
-else
+if ! git diff --cached --quiet; then
   git commit -m "$MSG"
 fi
-
 git fetch origin
 git pull --rebase origin "$CURBR"
 git push -u origin "$CURBR"
 
+# --- trigger workflow (no inputs) ---
 WORKFLOW_FILE="deploy-site-ssm.yml"
 if command -v gh >/dev/null 2>&1; then
-  gh workflow run "${WORKFLOW_FILE}" --ref "$CURBR" || true
+  gh workflow run "$WORKFLOW_FILE" --ref "$CURBR" || true
 fi
 
-# Always open the Actions tab (exactly /actions)
+# --- OPEN EXACT ACTIONS TAB (hard-coded to your repo) ---
 ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
-echo "🌐 Opening Actions tab: $ACTIONS_URL"
-if [ -x /usr/bin/open ]; then
-  /usr/bin/open "$ACTIONS_URL"
-else
-  echo "🔗 $ACTIONS_URL"
+# Prefer AppleScript (reliable from IntelliJ/macOS), then open, then xdg-open; always print the URL too.
+if [ -x /usr/bin/osascript ]; then
+  /usr/bin/osascript -e 'open location "'"$ACTIONS_URL"'"' || true
+elif [ -x /usr/bin/open ]; then
+  /usr/bin/open "$ACTIONS_URL" || true
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$ACTIONS_URL" || true
 fi
+echo "🌐 Actions: $ACTIONS_URL"
 
 echo "✅ Done."
+# ✅ Done: full script above
