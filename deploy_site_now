@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # Full, copy-pasteable Bash file
 # Safe to run (will NOT auto-close your terminal)
-# File: deploy_site_now
+# File: deploy_site_now (MINIMAL)
 
 set -euo pipefail
 MSG="${1:-site: update}"
 
-# --- go to repo root ---
+# 1) ensure we run at repo root
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || { echo "❌ Not inside a git repository."; exit 1; }
 cd "$ROOT"
 
-# --- current branch ---
+# 2) current branch
 CURBR="$(git branch --show-current 2>/dev/null || true)"
 [ -n "$CURBR" ] || { echo "❌ Cannot determine current branch."; exit 1; }
 
-# --- stage, commit (if any), sync, push ---
+# 3) commit + push (no-op if nothing changed)
 git add -A
 if ! git diff --cached --quiet; then
   git commit -m "$MSG"
@@ -24,15 +24,15 @@ git fetch origin
 git pull --rebase origin "$CURBR"
 git push -u origin "$CURBR"
 
-# --- trigger GitHub Actions workflow (no inputs) ---
+# 4) trigger workflow (no inputs)
 WORKFLOW_FILE="deploy-site-ssm.yml"
 if command -v gh >/dev/null 2>&1; then
   gh workflow run "$WORKFLOW_FILE" --ref "$CURBR" || true
 fi
 
-# --- ALWAYS open the exact Actions tab for this repo ---
+# 5) open Actions tab (hard-coded to your repo)
 ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
-# Prefer AppleScript (reliable from IDE terminals), then macOS open, then xdg-open
+# Prefer AppleScript from IntelliJ/macOS, then open, then xdg-open; always print URL.
 if command -v osascript >/dev/null 2>&1; then
   osascript -e 'open location "'"$ACTIONS_URL"'"' || true
 elif [ -x /usr/bin/open ]; then
