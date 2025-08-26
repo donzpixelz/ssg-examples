@@ -17,7 +17,6 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -107,13 +106,13 @@ jobs:
           IDS: ${{ steps.ids.outputs.IDS }}
         run: |
           set -euo pipefail
-          # Ensure jq exists (usually present on ubuntu-latest)
-          if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update -y && sudo apt-get install -y jq
-          fi
-          # Convert space-separated IDS into JSON array
+          # jq is on ubuntu-latest; install if missing
+          command -v jq >/dev/null 2>&1 || { sudo apt-get update -y && sudo apt-get install -y jq; }
+
+          # Convert space-separated IDs to JSON array
           json_ids=$(printf '%s\n' $IDS | jq -R . | jq -s .)
-          # Build payload safely with jq (escapes URLs)
+
+          # Build payload safely with jq (properly escapes presigned URLs)
           jq -n --argjson arr "$json_ids" --arg run "$RUN_URL" --arg app "$APP_URL" '{
             DocumentName: "AWS-RunShellScript",
             InstanceIds: $arr,
