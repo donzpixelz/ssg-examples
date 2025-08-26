@@ -9,15 +9,18 @@ BR="$(git branch --show-current 2>/dev/null || true)"; [ -n "$BR" ] || { echo "�
 git add -A
 if ! git diff --cached --quiet; then git commit -m "$MSG"; fi
 git fetch origin
-git pull --rebase origin "$BR"
+git pull --rebase origin "$BR" || true
 git push -u origin "$BR"
 
+# Try to dispatch; never block opening the page
 if command -v gh >/dev/null 2>&1; then gh workflow run "deploy-site-ssm.yml" --ref "$BR" || true; fi
 
 URL="https://github.com/donzpixelz/ssg-examples/actions"
+# Open unconditionally
 if [ -x /usr/bin/osascript ]; then /usr/bin/osascript -e 'open location "'"$URL"'"' || true
 elif [ -x /usr/bin/open ]; then /usr/bin/open "$URL" || true
 elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" || true
 fi
+
 echo "🌐 Actions: $URL"
 echo "✅ Done."

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write     # REQUIRED for OIDC
+  id-token: write
   contents: read
 
 jobs:
@@ -24,21 +24,21 @@ jobs:
       - name: Who am I?
         run: aws sts get-caller-identity
 
-      # Resolve BUCKET once: prefer secret, else fallback default. Export to GITHUB_ENV.
+      # Resolve BUCKET once, export for all later steps
       - name: Resolve bucket
         run: |
           set -euo pipefail
-          DEFAULT_BUCKET="ssg-examples-deploy-953331331353-us-east-2"
-          # The following expression is resolved by Actions at runtime:
           SECRET_VAL="${{ secrets.DEPLOY_S3_BUCKET }}"
           if [ -n "$SECRET_VAL" ]; then
             echo "BUCKET=$SECRET_VAL" >> "$GITHUB_ENV"
           else
-            echo "BUCKET=$DEFAULT_BUCKET" >> "$GITHUB_ENV"
+            echo "BUCKET=ssg-examples-deploy-953331331353-us-east-2" >> "$GITHUB_ENV"
           fi
           echo "AWS_REGION=us-east-2" >> "$GITHUB_ENV"
+          echo "Using bucket: $([ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" || echo "ssg-examples-deploy-953331331353-us-east-2")"
 
-      - name: Ensure bucket exists (create if missing)
+      # Idempotent: head-bucket; if missing try create; then head-bucket again; only fail if still missing
+      - name: Ensure bucket exists (idempotent)
         run: |
           set -euo pipefail
           if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
@@ -46,11 +46,12 @@ jobs:
           else
             echo "Creating bucket: $BUCKET in $AWS_REGION"
             if [ "$AWS_REGION" = "us-east-1" ]; then
-              aws s3api create-bucket --bucket "$BUCKET"
+              aws s3api create-bucket --bucket "$BUCKET" || true
             else
-              aws s3api create-bucket --bucket "$BUCKET" \
-                --create-bucket-configuration LocationConstraint="$AWS_REGION"
+              aws s3api create-bucket --bucket "$BUCKET"                 --create-bucket-configuration LocationConstraint="$AWS_REGION" || true
             fi
+            # Verify existence regardless of 'AlreadyOwnedByYou' noise
+            aws s3api head-bucket --bucket "$BUCKET" >/dev/null 2>&1 || { echo "❌ Failed to ensure bucket $BUCKET"; exit 1; }
             aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled || true
           fi
 
@@ -63,8 +64,8 @@ jobs:
         run: |
           set -euo pipefail
           KEY_PREFIX="examples/artifacts/${GITHUB_SHA}"
-          aws s3 cp app.tgz "s3://${BUCKET}/${KEY_PREFIX}/app.tgz" --region "$AWS_REGION"
-          aws s3 cp run.sh  "s3://${BUCKET}/${KEY_PREFIX}/run.sh"  --region "$AWS_REGION"
+          aws s3 cp app.tgz "s3://${BUCKET}/${KEY_PREFIX}/app.tgz" --region "$AWS_REGION" --acl bucket-owner-full-control
+          aws s3 cp run.sh  "s3://${BUCKET}/${KEY_PREFIX}/run.sh"  --region "$AWS_REGION" --acl bucket-owner-full-control
           echo "APP_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/app.tgz --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
           echo "RUN_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/run.sh  --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
 
