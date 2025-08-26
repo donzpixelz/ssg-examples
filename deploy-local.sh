@@ -1,36 +1,26 @@
 #!/usr/bin/env bash
-# Fast local → EC2 deploy over SSH (no GitHub Actions), plus git add/commit/push first.
-# - Does NOT touch Nginx configs.
-# - "Full" deploy with smart preservation:
-#     * Root is synced with --delete, BUT
-#     * Subsites (/jekyll,/hugo,/eleventy,/astro) are PRESERVED on the server if you DON'T have them locally.
-#     * If you DO have a subsite locally (non-empty), it is fully synced (with --delete) to the server.
-# - Usage:
-#     ./deploy-local.sh "commit message"
-#     ./deploy-local.sh --full "commit message"    # cleaner root sync, still preserves subsites you don't have
+# Local → EC2 deploy via SSH that:
+#  • pushes repo first (respects .gitignore),
+#  • deploys app/ to /usr/share/nginx/html with --delete,
+#  • deploys nginx/ files to /etc/nginx/conf.d (from repo, not hardcoded),
+#  • preserves /jekyll,/hugo,/eleventy,/astro remotely unless you have *built outputs* locally,
+#  • tests & reloads nginx,
+#  • never makes tarballs, never edits nginx here.
 
 set -Eeuo pipefail
 
-# ==== EDITABLE (already filled from your last script; adjust if needed) ====
+# Reused from your prior script:
 SSH_KEY="/Users/donwilson/.ssh/ssg-examples-key.pem"
 EC2_IP="18.220.33.0"
-# ==========================================================================
 
 APP_DIR="./app"
+NGINX_DIR="./nginx"
 DOCROOT="/usr/share/nginx/html"
+CONF_DIR="/etc/nginx/conf.d"
 
-# Parse flags/message
-FULL=0
-MSG=""
-for arg in "$@"; do
-  case "$arg" in
-    --full) FULL=1 ;;
-    *) MSG="$arg" ;;
-  esac
-done
-: "${MSG:=site: local fast deploy}"
+MSG="${1:-site: local SSH deploy}"
 
-# 0) Git add/commit/push (quick, non-blocking if nothing changed)
+# 0) Keep GitHub in sync (Git inherently respects .gitignore)
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 git add -A || true
 if ! git diff --cached --quiet; then
@@ -38,102 +28,62 @@ if ! git diff --cached --quiet; then
 fi
 git push origin "$BRANCH" || true
 
-# 1) Sanity
-[ -d "$APP_DIR" ] || { echo "❌ $APP_DIR not found"; exit 1; }
-[ -f "$APP_DIR/index.html" ] || { echo "❌ $APP_DIR/index.html not found"; exit 1; }
-[ -f "$SSH_KEY" ] || { echo "❌ SSH key not found: $SSH_KEY"; exit 1; }
-[ -n "$EC2_IP" ] || { echo "❌ EC2_IP is empty"; exit 1; }
+# 1) Preflight
+[ -d "$APP_DIR" ]   || { echo "❌ $APP_DIR not found"; exit 1; }
+[ -f "$SSH_KEY" ]   || { echo "❌ SSH key not found: $SSH_KEY"; exit 1; }
+[ -n "$EC2_IP" ]    || { echo "❌ EC2_IP is empty"; exit 1; }
 
-# 2) Prepare package and determine which subsites you have locally
-SUBSITES=("jekyll" "hugo" "eleventy" "astro")
-HAVE_LOCAL=""   # subsites present & non-empty locally → will be updated
-KEEP_REMOTE=""  # subsites NOT present locally → will be preserved on server
-
-PKG_DIR="$(mktemp -d)"
-trap 'rm -rf "$PKG_DIR"' EXIT
-mkdir -p "$PKG_DIR/u"
-
-# Copy app into package
-rsync -a "$APP_DIR"/ "$PKG_DIR/u"/
-
-# Decide per-subsite
+# 2) Figure out which subsites you have *built output* for locally
+#    (“built” = an index.html present in the subfolder)
+SUBSITES=(jekyll hugo eleventy astro)
+EXCLUDES=()      # subsites we will preserve on server
+INCLUDE_BUILT=() # subsites we will fully sync (with --delete)
 for s in "${SUBSITES[@]}"; do
-  if [ -d "$APP_DIR/$s" ] && [ -n "$(ls -A "$APP_DIR/$s" 2>/dev/null || true)" ]; then
-    # we have local content → include and later sync with --delete
-    HAVE_LOCAL+=" $s"
+  if [ -f "$APP_DIR/$s/index.html" ]; then
+    INCLUDE_BUILT+=("$s")
   else
-    # no local content → remove from package so we don't wipe server
-    rm -rf "$PKG_DIR/u/$s"
-    KEEP_REMOTE+=" $s"
+    EXCLUDES+=(--exclude "$s/**")
   fi
 done
 
-# 3) Create tgz to upload
-tar -C "$PKG_DIR/u" -czf site.tgz .
-
-# 4) Upload & deploy remotely (no nginx config changes)
-scp -i "$SSH_KEY" -o StrictHostKeyChecking=no site.tgz ec2-user@"$EC2_IP":site.tgz
-
-# FULL mode: delete extraneous root files too (still preserves remote subsites you don't have locally)
-FULL_FLAG="$FULL"
-HAVE_LOCAL_STR="$HAVE_LOCAL"
-KEEP_REMOTE_STR="$KEEP_REMOTE"
-
-ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ec2-user@"$EC2_IP" "bash -se" <<EOF
+# 3) Ensure server has rsync & target dirs (no nginx changes here)
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ec2-user@"$EC2_IP" 'bash -se' <<'SSH'
 set -Eeuo pipefail
-DOCROOT="$DOCROOT"
-PKG="\$HOME/site.tgz"
-WORK="\$(mktemp -d)"
-mkdir -p "\$WORK"; tar -xzf "\$PKG" -C "\$WORK"
-
-# Ensure rsync exists
 if ! command -v rsync >/dev/null 2>&1; then
   if command -v yum >/dev/null 2>&1; then sudo yum install -y -q rsync >/dev/null
   elif command -v dnf >/dev/null 2>&1; then sudo dnf install -y -q rsync >/dev/null
   elif command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y >/dev/null && sudo apt-get install -y rsync >/dev/null
   fi
 fi
+sudo mkdir -p /usr/share/nginx/html
+sudo mkdir -p /etc/nginx/conf.d
+SSH
 
-sudo mkdir -p "\$DOCROOT"
+# 4) Rsync APP (full delete) – but preserve subsites without local built output
+#    Also honor .gitignore: use rsync filter file from repo root.
+RSYNC_SSH=( -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" --rsync-path="sudo rsync" )
+APP_FILTER=( --filter=':- .gitignore' )
+rsync -az --delete "${APP_FILTER[@]}" "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" "$APP_DIR"/ ec2-user@"$EC2_IP":"$DOCROOT"/
 
-# Build exclude list for subsites we want to PRESERVE (not present locally)
-EXCLUDES=""
-for s in $KEEP_REMOTE_STR; do
-  EXCLUDES="\$EXCLUDES --exclude '\$s/**'"
+# 5) For subsites you DO have built output for, force exact sync (with --delete)
+for s in "${INCLUDE_BUILT[@]}"; do
+  rsync -az --delete "${RSYNC_SSH[@]}" "$APP_DIR/$s"/ ec2-user@"$EC2_IP":"$DOCROOT/$s"/
 done
 
-# Root sync:
-#  - If --full: delete other root files (but not excluded subsites)
-#  - Else: incremental (no delete), always preserving excluded subsites
-if [ "$FULL_FLAG" -eq 1 ]; then
-  # delete-while respecting excludes
-  sudo bash -lc "rsync -a --delete --delete-excluded \$EXCLUDES \"\$WORK\"/ \"\$DOCROOT\"/"
-else
-  sudo bash -lc "rsync -a \$EXCLUDES \"\$WORK\"/ \"\$DOCROOT\"/"
+# 6) Rsync nginx/ from repo to server conf dir (apply what’s in the repo, nothing more)
+if [ -d "$NGINX_DIR" ]; then
+  rsync -az "${RSYNC_SSH[@]}" "$NGINX_DIR"/ ec2-user@"$EC2_IP":"$CONF_DIR"/
 fi
 
-# Per-subsite sync for those you DO have locally (force-delete to make them exact)
-for s in $HAVE_LOCAL_STR; do
-  if [ -d "\$WORK/\$s" ]; then
-    sudo rsync -a --delete "\$WORK/\$s"/ "\$DOCROOT/\$s"/
-  fi
-done
-
-# Permissions (best-effort)
-if id nginx >/dev/null 2>&1; then
-  sudo chown -R nginx:nginx "\$DOCROOT"
-fi
-sudo find "\$DOCROOT" -type d -exec chmod 755 {} \; || true
-sudo find "\$DOCROOT" -type f -exec chmod 644 {} \; || true
-
-# Reload nginx (no config edits)
+# 7) Test & reload nginx (no config edits here)
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ec2-user@"$EC2_IP" 'bash -se' <<'SSH'
+set -Eeuo pipefail
 if command -v nginx >/dev/null 2>&1; then
-  sudo nginx -t && (sudo systemctl reload nginx || sudo nginx -s reload || true)
+  sudo nginx -t
+  sudo systemctl reload nginx || sudo nginx -s reload || true
 fi
+# quick listing for sanity (no SIGPIPE)
+sudo ls -la /usr/share/nginx/html | sed -n '1,80p' || true
+SSH
 
-# Diagnostics (safe; no SIGPIPE)
-echo "--- DOCROOT top ---"
-sudo ls -la "\$DOCROOT" | sed -n '1,80p' || true
-EOF
-
-echo "✅ Done. Open:  http://$EC2_IP/?buster=$(date +%s)"
+echo "✅ Local SSH deploy complete → http://$EC2_IP/?buster=$(date +%s)"
