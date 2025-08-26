@@ -1,40 +1,24 @@
 #!/usr/bin/env bash
-# File: deploy_site_now (minimal)
 set -euo pipefail
 MSG="${1:-site: update}"
 
-# run at repo root
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-[ -n "$ROOT" ] || { echo "❌ Not inside a git repo."; exit 1; }
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"; [ -n "$ROOT" ] || { echo "❌ Not in git repo."; exit 1; }
 cd "$ROOT"
+CURBR="$(git branch --show-current 2>/dev/null || true)"; [ -n "$CURBR" ] || { echo "❌ No branch."; exit 1; }
 
-# branch
-CURBR="$(git branch --show-current 2>/dev/null || true)"
-[ -n "$CURBR" ] || { echo "❌ Cannot determine branch."; exit 1; }
-
-# commit + push
 git add -A
-if ! git diff --cached --quiet; then
-  git commit -m "$MSG"
-fi
+if ! git diff --cached --quiet; then git commit -m "$MSG"; fi
 git fetch origin
 git pull --rebase origin "$CURBR"
 git push -u origin "$CURBR"
 
-# trigger workflow (no inputs)
-WORKFLOW_FILE="deploy-site-ssm.yml"
-if command -v gh >/dev/null 2>&1; then
-  gh workflow run "$WORKFLOW_FILE" --ref "$CURBR" || true
-fi
+WF="deploy-site-ssm.yml"
+if command -v gh >/dev/null 2>&1; then gh workflow run "$WF" --ref "$CURBR" || true; fi
 
-# open repo Actions tab (hard-coded as requested)
-ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
-if [ -x /usr/bin/osascript ]; then
-  /usr/bin/osascript -e 'open location "'"$ACTIONS_URL"'"' || true
-elif [ -x /usr/bin/open ]; then
-  /usr/bin/open "$ACTIONS_URL" || true
-elif command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "$ACTIONS_URL" || true
+URL="https://github.com/donzpixelz/ssg-examples/actions"
+if [ -x /usr/bin/osascript ]; then /usr/bin/osascript -e 'open location "'"$URL"'"' || true
+elif [ -x /usr/bin/open ]; then /usr/bin/open "$URL" || true
+elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" || true
 fi
-echo "🌐 Actions: $ACTIONS_URL"
+echo "🌐 Actions: $URL"
 echo "✅ Done."
