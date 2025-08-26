@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# Full, copy-pasteable Bash file
-# File: deploy_site_now (repo-local script)
-
+# File: deploy_site_now (minimal)
 set -euo pipefail
 MSG="${1:-site: update}"
 
-# 1) ensure we run at repo root
+# run at repo root
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-[ -n "$ROOT" ] || { echo "❌ Not inside a git repository."; exit 1; }
+[ -n "$ROOT" ] || { echo "❌ Not inside a git repo."; exit 1; }
 cd "$ROOT"
 
-# 2) current branch
+# branch
 CURBR="$(git branch --show-current 2>/dev/null || true)"
-[ -n "$CURBR" ] || { echo "❌ Cannot determine current branch."; exit 1; }
+[ -n "$CURBR" ] || { echo "❌ Cannot determine branch."; exit 1; }
 
-# 3) commit + push (no-op if nothing changed)
+# commit + push
 git add -A
 if ! git diff --cached --quiet; then
   git commit -m "$MSG"
@@ -23,17 +21,14 @@ git fetch origin
 git pull --rebase origin "$CURBR"
 git push -u origin "$CURBR"
 
-# 4) trigger workflow (no inputs)
+# trigger workflow (no inputs)
 WORKFLOW_FILE="deploy-site-ssm.yml"
 if command -v gh >/dev/null 2>&1; then
   gh workflow run "$WORKFLOW_FILE" --ref "$CURBR" || true
 fi
 
-# 5) open Actions tab (hard-coded to your repo)
+# open repo Actions tab (hard-coded as requested)
 ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
-
-# Try multiple open methods; don't fail the deploy if they can't open.
-# Use absolute paths where possible (IntelliJ shells sometimes have PATH quirks).
 if [ -x /usr/bin/osascript ]; then
   /usr/bin/osascript -e 'open location "'"$ACTIONS_URL"'"' || true
 elif [ -x /usr/bin/open ]; then
@@ -41,9 +36,5 @@ elif [ -x /usr/bin/open ]; then
 elif command -v xdg-open >/dev/null 2>&1; then
   xdg-open "$ACTIONS_URL" || true
 fi
-
-# Always print the URL so you can click it if needed.
 echo "🌐 Actions: $ACTIONS_URL"
-
 echo "✅ Done."
-# ✅ Done: full script above

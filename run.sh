@@ -1,39 +1,15 @@
 #!/usr/bin/env bash
-# Full, copy-pasteable Bash file
-# Safe to run (will NOT auto-close your terminal)
 # File: run.sh — robust deploy for Amazon Linux 2
-#
-# Design:
-# - **No fragile pipelines** (no early-terminating pipes).
-# - **Ignore SIGPIPE** and **redirect ALL output to a local log file** on EC2,
-#   so SSM collectors can’t kill the process with exit 141.
-# - Preserves the safe literal $uri in nginx config via single-quoted heredoc.
+# - No fragile pipelines (no early-terminating pipes)
+# - Ignore SIGPIPE so SSM collectors can’t kill the process with exit 141
+# - Keep stdout/stderr normal (no /var/log redirection)
 
 set -euo pipefail
 trap '' PIPE
 
-LOG="/var/log/ssg-examples-deploy.log"
-# Print a single line to the SSM console, then send everything else to the log.
-# (This tiny write happens before any collector might close; the rest won’t touch the pipe.)
-echo "Remote deploy started. Full log: $LOG"
-
-# Redirect all subsequent stdout/stderr to the log file (no tee, no pipes).
-# Create/own the log safely; SSM runs as root on AL2, so permissions are fine.
-mkdir -p "$(dirname "$LOG")"
-touch "$LOG"
-chmod 644 "$LOG"
-exec >>"$LOG" 2>&1
-
-echo "===== $(date +'%Y-%m-%d %H:%M:%S') :: run.sh START ====="
-
-# -----------------------------
 # [0/9] Inputs & temp workspace
-# -----------------------------
 ART_URL="${1:-${ART_URL:-}}"
-if [ -z "${ART_URL:-}" ]; then
-  echo "❌ Missing artifact URL (arg1 or ART_URL env)."
-  exit 2
-fi
+[ -n "$ART_URL" ] || { echo "❌ Missing artifact URL (arg1 or ART_URL env)."; exit 2; }
 
 WORK="$(mktemp -d /tmp/site_deploy.XXXXXX)"
 ARCHIVE="$WORK/site.tgz"
@@ -42,36 +18,30 @@ mkdir -p "$STAGE"
 
 echo "[1/9] Workspace: $WORK"
 
-# -----------------------------
 # [2/9] Download artifact
-# -----------------------------
 echo "[2/9] Download artifact"
 curl -fsSL --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ART_URL"
-
 BYTES="$(wc -c <"$ARCHIVE" 2>/dev/null | tr -d '[:space:]' || echo 0)"
 echo "Download size: ${BYTES} bytes"
 
-# -----------------------------
 # [3/9] Validate archive
-# -----------------------------
 echo "[3/9] Validate archive"
 if ! tar -tzf "$ARCHIVE" >/dev/null 2>&1; then
   echo "❌ Archive is not a valid .tgz"
   exit 3
 fi
 
-# -----------------------------
 # [4/9] Unpack to staging
-# -----------------------------
 echo "[4/9] Unpack to staging"
 tar -xzf "$ARCHIVE" -C "$STAGE"
 
 echo "Staged files:"
+# POSIX-safe listing (no GNU -printf)
 for f in $(find "$STAGE" -type f 2>/dev/null); do
   echo "./${f#"$STAGE"/}"
 done
 
-# Choose content root (the dir that contains index.html)
+# Choose content root (dir that contains index.html)
 ROOT_CANDIDATE=""
 for d in "$STAGE" "$STAGE"/*; do
   if [ -f "$d/index.html" ]; then ROOT_CANDIDATE="$d"; break; fi
@@ -81,11 +51,8 @@ if [ -z "$ROOT_CANDIDATE" ]; then
   exit 4
 fi
 
-# -------------------------------------------
-# [5/9] Detect/install nginx & find DOCROOT
-# -------------------------------------------
+# [5/9] Detect/install nginx & docroot
 echo "[5/9] Detect nginx docroot (if nginx installed)"
-
 DOCROOT_DEFAULT="/usr/share/nginx/html"
 DOCROOT="$DOCROOT_DEFAULT"
 
@@ -100,7 +67,7 @@ fi
 
 mkdir -p /etc/nginx/conf.d
 
-# Dump nginx config to a file and parse root (no pipes to stdout)
+# Dump config then parse root from file (no piping to avoid SIGPIPE)
 NGDUMP="$WORK/nginx_dump.txt"
 if nginx -t >/dev/null 2>&1; then
   nginx -T >"$NGDUMP" 2>&1 || true
@@ -116,25 +83,18 @@ if nginx -t >/dev/null 2>&1; then
     }
     /^\}/ { if (inserver) inserver=0 }
   ' "$NGDUMP" 2>/dev/null || true)"
-  if [ -n "${FOUND_ROOT:-}" ]; then
-    DOCROOT="$FOUND_ROOT"
-  fi
+  [ -n "${FOUND_ROOT:-}" ] && DOCROOT="$FOUND_ROOT"
 fi
 
-if [ ! -d "$DOCROOT" ]; then
-  echo "Docroot '$DOCROOT' not present; using default '$DOCROOT_DEFAULT'."
-  DOCROOT="$DOCROOT_DEFAULT"
-fi
+[ -d "$DOCROOT" ] || DOCROOT="$DOCROOT_DEFAULT"
 mkdir -p "$DOCROOT"
 echo "Using docroot: $DOCROOT"
 
-# ---------------------------------------------------
 # [6/9] Ensure nginx server config (safe $uri)
-# ---------------------------------------------------
 echo "[6/9] Ensure nginx server config"
 CONF="/etc/nginx/conf.d/ssg-examples.conf"
 if [ ! -f "$CONF" ]; then
-  # SINGLE-QUOTED heredoc so $uri is NOT expanded by the shell
+  # SINGLE-QUOTED heredoc so $uri stays literal
   cat >"$CONF" <<'NGINX'
 server {
     listen 80 default_server;
@@ -151,7 +111,7 @@ server {
 NGINX
 fi
 
-# Update root line if docroot differs
+# Update root if docroot differs
 if [ "$DOCROOT" != "/usr/share/nginx/html" ]; then
   TMPCONF="$WORK/ssg-examples.conf.tmp"
   awk -v docroot="$DOCROOT" '
@@ -164,20 +124,17 @@ fi
 
 nginx -t
 
-# ---------------------------------
 # [7/9] Deploy staged files
-# ---------------------------------
 echo "[7/9] Deploy files to ${DOCROOT}"
 if command -v rsync >/dev/null 2>&1; then
   rsync -a --delete "$ROOT_CANDIDATE"/ "$DOCROOT"/
 else
+  # Remove existing contents (keep dir), then copy
   find "$DOCROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
   cp -a "$ROOT_CANDIDATE"/. "$DOCROOT"/
 fi
 
-# ---------------------------------
 # [8/9] Restart nginx
-# ---------------------------------
 echo "[8/9] Restart nginx"
 if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload || true
@@ -187,9 +144,7 @@ else
   service nginx restart || service nginx start
 fi
 
-# ---------------------------------
 # [9/9] Snapshot
-# ---------------------------------
 echo "[9/9] index.html snapshot"
 if [ -f "$DOCROOT/index.html" ]; then
   printf "Path: %s/index.html\n" "$DOCROOT"
@@ -198,5 +153,4 @@ else
   echo "⚠️  No index.html at $DOCROOT"
 fi
 
-echo "===== $(date +'%Y-%m-%d %H:%M:%S') :: run.sh END ====="
 echo "✅ Done."
