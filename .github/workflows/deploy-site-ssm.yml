@@ -14,13 +14,69 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  diagnose:
+    name: Diagnose secrets & environment
+    runs-on: ubuntu-latest
+    outputs:
+      has_role: ${{ steps.chk.outputs.has_role }}
+      has_bucket: ${{ steps.chk.outputs.has_bucket }}
+      role_source: ${{ steps.chk.outputs.role_source }}
+      region: ${{ steps.chk.outputs.region }}
+      have_ec2_id: ${{ steps.chk.outputs.have_ec2_id }}
+      have_ssm_id: ${{ steps.chk.outputs.have_ssm_id }}
+    steps:
+      - id: chk
+        name: Check for required secrets (values not shown)
+        env:
+          ROLE1: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          ROLE2: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET }}
+          REGION: ${{ secrets.AWS_REGION }}
+          EC2ID: ${{ secrets.EC2_INSTANCE_ID }}
+          SSMID: ${{ secrets.SSM_INSTANCE_ID }}
+        run: |
+          set -euo pipefail
+          has_role=0; role_src=""
+          if [ -n "${ROLE1:-}" ]; then has_role=1; role_src="AWS_ROLE_TO_ASSUME"; fi
+          if [ "$has_role" = 0 ] && [ -n "${ROLE2:-}" ]; then has_role=1; role_src="AWS_OIDC_ROLE_ARN"; fi
+
+          has_bucket=0
+          [ -n "${BUCKET:-}" ] && has_bucket=1
+
+          region="${REGION:-us-east-2}"
+
+          have_ec2_id=0; [ -n "${EC2ID:-}" ] && have_ec2_id=1
+          have_ssm_id=0; [ -n "${SSMID:-}" ] && have_ssm_id=1
+
+          echo "has_role=$has_role"        >> "$GITHUB_OUTPUT"
+          echo "has_bucket=$has_bucket"    >> "$GITHUB_OUTPUT"
+          echo "role_source=$role_src"     >> "$GITHUB_OUTPUT"
+          echo "region=$region"            >> "$GITHUB_OUTPUT"
+          echo "have_ec2_id=$have_ec2_id"  >> "$GITHUB_OUTPUT"
+          echo "have_ssm_id=$have_ssm_id"  >> "$GITHUB_OUTPUT"
+
+          echo "──────────────── DIAGNOSIS ────────────────"
+          echo "• Role secret present?         $has_role (source=$role_src)"
+          echo "• Artifact S3 bucket present?  $has_bucket"
+          echo "• Region (default if empty):   $region"
+          echo "• EC2_INSTANCE_ID present?     $have_ec2_id"
+          echo "• SSM_INSTANCE_ID present?     $have_ssm_id"
+          if [ "$has_role" = 0 ] || [ "$has_bucket" = 0 ]; then
+            echo "→ Deploy job will be SKIPPED (missing required secret)."
+          else
+            echo "→ Deploy job WILL run."
+          fi
+          echo "────────────────────────────────────────────"
+
   build:
     name: Build & package site
     runs-on: ubuntu-latest
+    needs: diagnose
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # No root-level lockfile cache to avoid 'lockfile not found' noise
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -42,9 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           BUILD_ROOT="__deploy_root"
-          rm -rf "$BUILD_ROOT"
-          mkdir -p "$BUILD_ROOT"
-
+          rm -rf "$BUILD_ROOT"; mkdir -p "$BUILD_ROOT"
           echo "▶ Copy root site from app/ → $BUILD_ROOT/"
           rsync -av --delete app/ "$BUILD_ROOT"/
 
@@ -123,20 +177,19 @@ jobs:
 
   deploy:
     name: Deploy to EC2 via SSM
-    needs: build
-    # IMPORTANT: job-level if must NOT reference secrets.* directly.
-    # We map secrets → env below, and gate on env.* here.
-    if: ${{ env.AWS_ROLE_TO_ASSUME != '' && env.ARTIFACT_S3_BUCKET != '' }}
+    needs: [ diagnose, build ]
+    # Gate with outputs from 'diagnose' (strings)
+    if: ${{ needs.diagnose.outputs.has_role == '1' && needs.diagnose.outputs.has_bucket == '1' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     env:
-      # Map your secrets into job env. We prefer your AWS_ROLE_TO_ASSUME; fallback to AWS_OIDC_ROLE_ARN if present.
+      # Map secrets into env (prefer your names; fallback to OIDC ARN)
       AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME || secrets.AWS_OIDC_ROLE_ARN || '' }}
       ARTIFACT_S3_BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET || '' }}
-      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
-      # Instance selection: prefer your EC2_INSTANCE_ID; fallback to SSM_INSTANCE_ID; else lookup by tag.
+      AWS_REGION: ${{ needs.diagnose.outputs.region }}
+      # Instance selection: prefer EC2_INSTANCE_ID; fallback to SSM_INSTANCE_ID; else tag lookup.
       EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID || '' }}
       SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID || '' }}
       EC2_TAG_NAME: ssg-examples
@@ -168,10 +221,10 @@ jobs:
           set -euo pipefail
           if [ -n "${EC2_INSTANCE_ID:-}" ]; then
             TGT="$EC2_INSTANCE_ID"
-            echo "Using EC2_INSTANCE_ID secret: $TGT"
+            echo "Using EC2_INSTANCE_ID secret."
           elif [ -n "${SSM_INSTANCE_ID:-}" ]; then
             TGT="$SSM_INSTANCE_ID"
-            echo "Using SSM_INSTANCE_ID secret: $TGT"
+            echo "Using SSM_INSTANCE_ID secret."
           else
             echo "Looking up instance by tag Name=${EC2_TAG_NAME}..."
             TGT="$(aws ec2 describe-instances \
