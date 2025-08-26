@@ -10,10 +10,6 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      AWS_REGION: us-east-2
-      DEPLOY_S3_BUCKET: ${{ secrets.DEPLOY_S3_BUCKET }}
-      SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
 
     steps:
       - name: Checkout
@@ -23,10 +19,40 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::953331331353:role/GitHubOIDC-ssg-examples
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: us-east-2
 
       - name: Who am I?
         run: aws sts get-caller-identity
+
+      # Resolve BUCKET once: prefer secret, else fallback default. Export to GITHUB_ENV.
+      - name: Resolve bucket
+        run: |
+          set -euo pipefail
+          DEFAULT_BUCKET="ssg-examples-deploy-953331331353-us-east-2"
+          # The following expression is resolved by Actions at runtime:
+          SECRET_VAL="${{ secrets.DEPLOY_S3_BUCKET }}"
+          if [ -n "$SECRET_VAL" ]; then
+            echo "BUCKET=$SECRET_VAL" >> "$GITHUB_ENV"
+          else
+            echo "BUCKET=$DEFAULT_BUCKET" >> "$GITHUB_ENV"
+          fi
+          echo "AWS_REGION=us-east-2" >> "$GITHUB_ENV"
+
+      - name: Ensure bucket exists (create if missing)
+        run: |
+          set -euo pipefail
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "Bucket exists: $BUCKET"
+          else
+            echo "Creating bucket: $BUCKET in $AWS_REGION"
+            if [ "$AWS_REGION" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "$BUCKET"
+            else
+              aws s3api create-bucket --bucket "$BUCKET" \
+                --create-bucket-configuration LocationConstraint="$AWS_REGION"
+            fi
+            aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled || true
+          fi
 
       - name: Package app
         run: |
@@ -37,12 +63,14 @@ jobs:
         run: |
           set -euo pipefail
           KEY_PREFIX="examples/artifacts/${GITHUB_SHA}"
-          aws s3 cp app.tgz "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz" --region "$AWS_REGION"
-          aws s3 cp run.sh  "s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh"  --region "$AWS_REGION"
-          echo "APP_URL=$(aws s3 presign s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/app.tgz --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
-          echo "RUN_URL=$(aws s3 presign s3://${DEPLOY_S3_BUCKET}/${KEY_PREFIX}/run.sh  --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
+          aws s3 cp app.tgz "s3://${BUCKET}/${KEY_PREFIX}/app.tgz" --region "$AWS_REGION"
+          aws s3 cp run.sh  "s3://${BUCKET}/${KEY_PREFIX}/run.sh"  --region "$AWS_REGION"
+          echo "APP_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/app.tgz --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
+          echo "RUN_URL=$(aws s3 presign s3://${BUCKET}/${KEY_PREFIX}/run.sh  --region $AWS_REGION --expires-in 3600)" >> $GITHUB_ENV
 
       - name: SSM run on EC2
+        env:
+          SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
         run: |
           set -euo pipefail
           cat > payload.json <<JSON
@@ -62,4 +90,4 @@ jobs:
           aws ssm send-command --cli-input-json file://payload.json --region "$AWS_REGION" >/dev/null
 
       - name: Done
-        run: echo "Dispatched deploy via SSM."
+        run: echo "Dispatched deploy via SSM (bucket=$BUCKET)."

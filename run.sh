@@ -25,7 +25,7 @@ for d in "$STAGE" "$STAGE"/*; do
 done
 [ -n "$ROOT_CANDIDATE" ] || { echo "❌ index.html not found"; exit 4; }
 
-echo "[3/5] Ensure nginx and fixed config"
+echo "[3/5] Ensure nginx & fixed config"
 if ! command -v nginx >/dev/null 2>&1; then
   if command -v dnf >/dev/null 2>&1; then dnf -y install nginx; else yum -y install nginx; fi
 fi
