@@ -39,7 +39,7 @@ jobs:
           hugo-version: '0.128.2'
           extended: true
 
-      - name: Build SSGs if present (sources under app/*)
+      - name: Build SSGs if present (under app/*)
         run: |
           set -euo pipefail
           BUILD_ROOT="__deploy_root"
@@ -49,7 +49,7 @@ jobs:
           echo "▶ Copy root site from app/ → $BUILD_ROOT/"
           rsync -av --delete app/ "$BUILD_ROOT"/
 
-          # Jekyll: build if app/jekyll has _config.yml or Gemfile
+          # Jekyll: build if configured
           if [ -d "app/jekyll" ] && { [ -f "app/jekyll/_config.yml" ] || [ -f "app/jekyll/Gemfile" ]; }; then
             echo "▶ Building Jekyll..."
             pushd app/jekyll >/dev/null
@@ -65,7 +65,7 @@ jobs:
             echo "ℹ️ app/jekyll not configured; keeping placeholder (if any)."
           fi
 
-          # Hugo: build if app/hugo has config.{toml,yaml,yml}
+          # Hugo: build if configured
           if [ -d "app/hugo" ] && ls app/hugo/config.* >/dev/null 2>&1; then
             echo "▶ Building Hugo..."
             pushd app/hugo >/dev/null
@@ -75,22 +75,34 @@ jobs:
             echo "ℹ️ app/hugo not configured; keeping placeholder (if any)."
           fi
 
-          # Eleventy: build if package.json references @11ty/eleventy or .eleventy.* exists
+          # Eleventy: build if configured
           if [ -d "app/eleventy" ] && { grep -q '"@11ty/eleventy"' app/eleventy/package.json 2>/dev/null || ls app/eleventy/.eleventy.* >/dev/null 2>&1; }; then
             echo "▶ Building Eleventy..."
             pushd app/eleventy >/dev/null
-            if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
+            if [ -f package-lock.json ]; then
+              npm ci
+            elif [ -f pnpm-lock.yaml ]; then
+              npm i -g pnpm && pnpm i
+            else
+              npm install
+            fi
             npx @11ty/eleventy --output "$GITHUB_WORKSPACE/$BUILD_ROOT/eleventy"
             popd >/dev/null
           else
             echo "ℹ️ app/eleventy not configured; keeping placeholder (if any)."
           fi
 
-          # Astro: build if package.json references "astro"
+          # Astro: build if configured
           if [ -d "app/astro" ] && grep -q '"astro"' app/astro/package.json 2>/dev/null; then
             echo "▶ Building Astro..."
             pushd app/astro >/dev/null
-            if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
+            if [ -f package-lock.json ]; then
+              npm ci
+            elif [ -f pnpm-lock.yaml ]; then
+              npm i -g pnpm && pnpm i
+            else
+              npm install
+            fi
             npx astro build --outDir "$GITHUB_WORKSPACE/$BUILD_ROOT/astro"
             popd >/dev/null
           else
@@ -118,9 +130,10 @@ jobs:
       id-token: write
       contents: read
     env:
-      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
       ARTIFACT_S3_BUCKET: ${{ secrets.ARTIFACT_S3_BUCKET }}
       SSM_INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
+      AWS_OIDC_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN }}
       EC2_TAG_NAME: ssg-examples
     steps:
       - name: Download artifact
@@ -129,18 +142,18 @@ jobs:
           name: built-site
           path: .
 
-      - name: Verify required secret(s)
+      - name: Verify required secrets & set defaults
         run: |
           set -euo pipefail
-          : "${ARTIFACT_S3_BUCKET:?Missing ARTIFACT_S3_BUCKET secret. Set it in repo secrets.}"
-          : "${{ secrets.AWS_OIDC_ROLE_ARN || '' }}" || { echo "Missing AWS_OIDC_ROLE_ARN secret."; exit 1; }
+          [ -n "${ARTIFACT_S3_BUCKET:-}" ] || { echo "Missing ARTIFACT_S3_BUCKET secret."; exit 1; }
+          [ -n "${AWS_OIDC_ROLE_ARN:-}" ] || { echo "Missing AWS_OIDC_ROLE_ARN secret."; exit 1; }
+          echo "AWS_REGION=${AWS_REGION:-us-east-2}" >> "$GITHUB_ENV"
           echo "Using S3 bucket: ${ARTIFACT_S3_BUCKET}"
-          echo "Region: ${AWS_REGION}"
 
       - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload tarball to S3
@@ -169,45 +182,59 @@ jobs:
           fi
           echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy via SSM (inline commands)
+      - name: Ensure jq (for JSON params)
         run: |
           set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
+
+      - name: Deploy via SSM (inline, JSON-safe)
+        env:
+          ARTIFACT_KEY: ${{ steps.s3.outputs.key }}
+          TARGET: ${{ steps.ssm.outputs.target }}
+        run: |
+          set -euo pipefail
+
+          # Build the remote script (single string) safely
+          read -r -d '' REMOTE_SCRIPT <<'EOS'
+          set -euo pipefail
+          TMP="$(mktemp -d)"
+          DEST="/usr/share/nginx/html"
+          ART_BUCKET="${ARTIFACT_S3_BUCKET}"
+          ART_KEY="${ARTIFACT_KEY}"
+
+          if ! command -v aws >/dev/null 2>&1; then
+            echo "aws CLI not found on instance; cannot download from S3." >&2
+            exit 1
+          fi
+
+          sudo mkdir -p "$DEST"
+          aws s3 cp "s3://${ART_BUCKET}/${ART_KEY}" "$TMP/site.tgz"
+          sudo tar -xzf "$TMP/site.tgz" -C "$DEST"
+
+          for d in jekyll hugo eleventy astro; do
+            sudo mkdir -p "$DEST/$d"
+          done
+
+          if command -v nginx >/dev/null 2>&1; then
+            if sudo nginx -t; then
+              sudo systemctl reload nginx || sudo nginx -s reload || true
+            fi
+          fi
+
+          rm -rf "$TMP"
+          echo "Deployed to $DEST at $(date -u +%FT%TZ)"
+          EOS
+
+          # Create JSON params file for SSM (avoids YAML/quote issues)
+          jq -n --arg cmd "$REMOTE_SCRIPT" '{commands: [$cmd]}' > params.json
+
           aws ssm send-command \
-            --instance-ids "${{ steps.ssm.outputs.target }}" \
+            --instance-ids "$TARGET" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ssg-examples $GITHUB_SHA" \
-            --parameters commands="$(
-cat <<'SSM'
-set -euo pipefail
-TMP="$(mktemp -d)"
-ART_BUCKET="${ARTIFACT_S3_BUCKET}"
-ART_KEY="${{ steps.s3.outputs.key }}"
-DEST="/usr/share/nginx/html"
-
-if ! command -v aws >/dev/null 2>&1; then
-  echo "aws CLI not found on instance; cannot download from S3." >&2
-  exit 1
-fi
-
-sudo mkdir -p "$DEST"
-aws s3 cp "s3://${ART_BUCKET}/${ART_KEY}" "$TMP/site.tgz"
-sudo tar -xzf "$TMP/site.tgz" -C "$DEST"
-
-# Ensure subpaths exist even if some builders were skipped
-for d in jekyll hugo eleventy astro; do
-  sudo mkdir -p "$DEST/$d"
-done
-
-# Validate and reload nginx (idempotent)
-if command -v nginx >/dev/null 2>&1; then
-  if sudo nginx -t; then
-    sudo systemctl reload nginx || sudo nginx -s reload || true
-  fi
-fi
-
-rm -rf "$TMP"
-echo "Deployed to $DEST at $(date -u +%FT%TZ)"
-SSM
-)" \
+            --parameters file://params.json \
             --region "${AWS_REGION}" \
             --output text >/dev/null

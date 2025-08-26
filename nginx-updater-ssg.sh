@@ -2,8 +2,8 @@
 # nginx-updater-ssg.sh — safely update nginx default server with /jekyll, /hugo, /eleventy, /astro
 # Run on EC2 (via SSH or SSM). Requires sudo/root. Returns to prompt.
 
-set -euo pipefixe
-# Fix a typo if pipefixe is not recognized; fallback:
+set -euo pipefail
+# Fix a typo if pipefail is not recognized; fallback:
 set +e
 set -euo pipefail
 
