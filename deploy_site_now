@@ -12,9 +12,12 @@ git fetch origin
 git pull --rebase origin "$CURBR"
 git push -u origin "$CURBR"
 
-WF="deploy-site-ssm.yml"
-if command -v gh >/dev/null 2>&1; then gh workflow run "$WF" --ref "$CURBR" || true; fi
+# Dispatch workflow (no inputs)
+if command -v gh >/dev/null 2>&1; then
+  gh workflow run "deploy-site-ssm.yml" --ref "$CURBR" || true
+fi
 
+# Open Actions tab (exact URL)
 URL="https://github.com/donzpixelz/ssg-examples/actions"
 if [ -x /usr/bin/osascript ]; then /usr/bin/osascript -e 'open location "'"$URL"'"' || true
 elif [ -x /usr/bin/open ]; then /usr/bin/open "$URL" || true

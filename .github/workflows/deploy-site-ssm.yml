@@ -1,83 +1,56 @@
-name: Deploy site (/app) to Nginx (authoritative)
+name: deploy-site-ssm
 
 on:
-  workflow_dispatch:
-
-env:
-  AWS_REGION: us-east-2
-  REMOTE_ROOT: /usr/share/nginx/html
-  ARTIFACT_PREFIX: ssg-examples/artifacts
-
-permissions:
-  id-token: write
-  contents: read
+  workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      BUCKET: ${{ secrets.DEPLOY_S3_BUCKET }}
+      INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Configure AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ssg-examples-${{ github.run_id }}
-
-      - name: Validate & package ./app
-        id: pack
-        shell: bash
+      - name: Package ./app
         run: |
           set -euo pipefail
-          test -f ./app/index.html || { echo "::error::Missing ./app/index.html"; exit 1; }
-          mkdir -p artifact
-          tar -C "./app" -czf artifact/site.tgz .
-          echo "path=artifact/site.tgz" >> "$GITHUB_OUTPUT"
+          tar -czf app.tgz -C ./app .
 
-      - name: Ensure bucket & upload
-        id: up
-        shell: bash
+      - name: Upload artifacts to S3 with fresh key
         run: |
           set -euo pipefail
-          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-          BUCKET="ssg-examples-artifacts-${ACCOUNT_ID}-${AWS_REGION}"
-          KEY="${{ env.ARTIFACT_PREFIX }}/${{ github.sha }}.tgz"
-          if ! aws s3api head-bucket --bucket "$BUCKET" >/dev/null 2>&1; then
-            aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION" --create-bucket-configuration LocationConstraint="$AWS_REGION"
-            aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
-            aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-          fi
-          aws s3 cp "${{ steps.pack.outputs.path }}" "s3://$BUCKET/$KEY"
-          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
-          echo "key=$KEY"       >> "$GITHUB_OUTPUT"
+          KEY_PREFIX="examples/artifacts/${GITHUB_SHA}"
+          aws s3 cp app.tgz "s3://${BUCKET}/${KEY_PREFIX}/app.tgz" --region "$AWS_REGION"
+          aws s3 cp run.sh "s3://${BUCKET}/${KEY_PREFIX}/run.sh" --region "$AWS_REGION"
 
-      - name: Presign & set env
-        shell: bash
+          APP_URL="$(aws s3 presign "s3://${BUCKET}/${KEY_PREFIX}/app.tgz" --region "$AWS_REGION" --expires-in 3600)"
+          RUN_URL="$(aws s3 presign "s3://${BUCKET}/${KEY_PREFIX}/run.sh" --region "$AWS_REGION" --expires-in 3600)"
+
+          echo "APP_URL=$APP_URL" >> "$GITHUB_ENV"
+          echo "RUN_URL=$RUN_URL" >> "$GITHUB_ENV"
+
+      - name: SSM: run deploy on EC2
         run: |
           set -euo pipefail
-          URL="$(aws s3 presign "s3://${{ steps.up.outputs.bucket }}/${{ steps.up.outputs.key }}" --expires-in 3600)"
-          echo "ARTIFACT_URL=$URL" >> "$GITHUB_ENV"
-          echo "INSTANCE_ID=${{ secrets.EC2_INSTANCE_ID }}" >> "$GITHUB_ENV"
+          # Build SSM payload with safe JSON quoting via jq
+          PAYLOAD="$(jq -nc --arg inst "$INSTANCE_ID" --arg run "$RUN_URL" --arg app "$APP_URL" '{
+              DocumentName: "AWS-RunShellScript",
+              InstanceIds: [$inst],
+              Parameters: {
+                commands: [
+                  "set -euo pipefail",
+                  "curl -fsSL -o /tmp/run.sh \($run)",
+                  "chmod +x /tmp/run.sh",
+                  "/tmp/run.sh \($app)"
+                ]
+              }
+            }')"
+          aws ssm send-command --cli-input-json "$PAYLOAD" --region "$AWS_REGION" >/dev/null
 
-      - name: Deploy via SSM (call repo script)
-        shell: bash
+      - name: Note
         run: |
-          set -euo pipefail
-          AWS_REGION="${AWS_REGION}" \
-          INSTANCE_ID="${INSTANCE_ID}" \
-          ARTIFACT_URL="${ARTIFACT_URL}" \
-          REMOTE_ROOT="${REMOTE_ROOT}" \
-          bash scripts/deploy-remote.sh
-
-      - name: Helpful link
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          IP="$(aws ec2 describe-instances --region "${AWS_REGION}" --instance-ids "${INSTANCE_ID}" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text || true)"
-          echo "IP: $IP"
-          if [ -n "$IP" ] && [ "$IP" != "None" ]; then
-            echo "Open: http://$IP/?buster=$(date +%s)"
-          fi
+          echo "Dispatched deploy to EC2 via SSM."
