@@ -261,9 +261,12 @@ jobs:
           set -Eeuo pipefail
           trap 'echo "ERR(ssm) line $LINENO: $BASH_COMMAND" >&2' ERR
 
-          # Build remote script safely via heredoc capture (no read -d '')
-          REMOTE_SCRIPT="$(cat <<'EOS'
+          # Build remote script from a template then embed literal values for bucket/key/sha.
+          TEMPLATE="$(cat <<'EOS'
           set -euo pipefail
+          ARTIFACT_BUCKET="__BUCKET__"
+          ARTIFACT_KEY="__KEY__"
+          SHA="__SHA__"
 
           get_docroot() {
             if command -v nginx >/dev/null 2>&1; then
@@ -333,14 +336,20 @@ jobs:
           EOS
           )"
 
-          # Create JSON parameter for SSM (avoids quoting issues)
+          # Embed literal values (no reliance on remote env)
+          REMOTE_SCRIPT="$TEMPLATE"
+          REMOTE_SCRIPT="${REMOTE_SCRIPT//__BUCKET__/$ARTIFACT_BUCKET}"
+          REMOTE_SCRIPT="${REMOTE_SCRIPT//__KEY__/$ARTIFACT_KEY}"
+          REMOTE_SCRIPT="${REMOTE_SCRIPT//__SHA__/$SHA}"
+
+          # Create JSON param for SSM
           jq -n --arg cmd "$REMOTE_SCRIPT" '{commands: [$cmd]}' > params.json
 
           # Send command
           CID="$(aws ssm send-command \
             --instance-ids "$TARGET" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy with diagnostics ${SHA}" \
+            --comment "Deploy with embedded vars ${SHA}" \
             --parameters file://params.json \
             --region "${AWS_REGION}" \
             --query "Command.CommandId" --output text)"
