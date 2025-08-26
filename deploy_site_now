@@ -1,39 +1,60 @@
 #!/usr/bin/env bash
 # Local deploy driver:
-# - Commit/push current branch
-# - Dispatch workflow (best-effort)
-# - Open the Actions page (best-effort)
-# - Never exit nonzero due to opener glitches
-set -Eeuo pipefail
+# - commit/push (best-effort)
+# - dispatch workflow via gh (best-effort)
+# - open Actions page (best-effort)
+# - return to prompt
+
+# no set -e: we want to return to prompt even if something hiccups
+set -u
+
+log="/tmp/deploy_site_now.local.$USER.log"
+{
+  echo
+  echo "===== $(date +'%Y-%m-%d %H:%M:%S') :: deploy_site_now START ====="
+} >>"$log"
+
+say(){ printf "%s\n" "$*"; echo "$*" >>"$log"; }
+safe(){ "$@" >>"$log" 2>&1 || true; }
 
 MSG="${1:-site: update}"
-STATUS=0
-trap 'STATUS=0; echo "⚠️  Ignored non-critical error; continuing…"' ERR
 
-# Repo + branch
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"; [ -n "$ROOT" ] || { echo "❌ Not in git repo."; exit 1; }
-cd "$ROOT"
-BR="$(git branch --show-current 2>/dev/null || true)"; [ -n "$BR" ] || { echo "❌ No branch."; exit 1; }
-
-# Commit & push
-git add -A || true
-if ! git diff --cached --quiet; then
-  git commit -m "$MSG" || true
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$ROOT" ]; then
+  say "❌ Not in a git repo."
+  printf "🪵 Log: %s\n" "$log"
+  exit 0
 fi
-git fetch origin || true
-git pull --rebase origin "$BR" || true
-git push -u origin "$BR" || true
+cd "$ROOT" || true
 
-# Dispatch GitHub Actions (best-effort)
-if command -v gh >/dev/null 2>&1; then
-  gh workflow run "deploy-site-ssm.yml" --ref "$BR" || true
+BR="$(git branch --show-current 2>/dev/null || true)"
+[ -n "$BR" ] || BR="main"
+
+say "📁 Repo: $ROOT"
+say "🌿 Branch: $BR"
+
+safe git add -A
+if ! git diff --cached --quiet 2>/dev/null; then
+  say "📝 Commit: $MSG"
+  safe git commit -m "$MSG"
 else
-  echo "ℹ️  'gh' not found; skipping dispatch."
+  say "ℹ️  No changes to commit."
 fi
 
-# Derive Actions URL from origin, with safe fallback
-ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+safe git fetch origin
+safe git pull --rebase origin "$BR"
+safe git push -u origin "$BR"
+
+if command -v gh >/dev/null 2>&1; then
+  say "🚀 Dispatch: deploy-site-ssm.yml"
+  safe gh workflow run "deploy-site-ssm.yml" --ref "$BR"
+else
+  say "⚠️  'gh' not found; skipping dispatch."
+fi
+
+# Build Actions URL from origin; fallback to repo remote if parseable
 ACTIONS_URL="https://github.com/donzpixelz/ssg-examples/actions"
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
 if [[ "$ORIGIN_URL" =~ ^git@github\.com:([^/]+/[^.]+)\.git$ ]]; then
   ACTIONS_URL="https://github.com/${BASH_REMATCH[1]}/actions"
 elif [[ "$ORIGIN_URL" =~ ^https?://github\.com/([^/]+/[^.]+)\.git$ ]]; then
@@ -42,25 +63,18 @@ elif [[ "$ORIGIN_URL" =~ ^https?://github\.com/([^/]+/[^ ]+)$ ]]; then
   ACTIONS_URL="https://github.com/${BASH_REMATCH[1]}/actions"
 fi
 
-# Open the Actions page — never fail the script if this hiccups.
-_open_ok=0
+# Open best-effort; never fail the script for opener issues
 if command -v open >/dev/null 2>&1; then
   ( open "$ACTIONS_URL" >/dev/null 2>&1 || true )
-  _open_ok=1
 elif command -v xdg-open >/dev/null 2>&1; then
   ( xdg-open "$ACTIONS_URL" >/dev/null 2>&1 || true )
-  _open_ok=1
-fi
-
-# Last-resort opener via Python’s stdlib (no external deps)
-if [ $_open_ok -eq 0 ] && command -v python3 >/dev/null 2>&1; then
+elif command -v python3 >/dev/null 2>&1; then
   python3 - <<PY || true
-import webbrowser
-webbrowser.open("${ACTIONS_URL}", new=2)
+import webbrowser; webbrowser.open("${ACTIONS_URL}", new=2)
 PY
 fi
 
-echo "🌐 Actions: $ACTIONS_URL"
-echo "✅ Done."
-# Explicitly exit 0 so IntelliJ Terminal does not close the tab on non-critical errors
+printf "🌐 Actions: %s\n" "$ACTIONS_URL"
+printf "🪵 Log: %s\n" "$log"
+printf "✅ Done.\n"
 exit 0
