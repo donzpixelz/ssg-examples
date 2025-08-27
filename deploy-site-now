@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy_site_now — commit/push and trigger the workflow; returns to prompt; optionally open Actions page
+# deploy-site-now — commit/push and trigger the workflow; returns to prompt; optionally open Actions page
 set -euo pipefail
 MSG="${1:-site: update}"
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
