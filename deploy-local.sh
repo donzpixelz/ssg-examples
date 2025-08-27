@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# Local → GitHub → EC2 (SSH) deploy with SSG-protected rsync.
-# - Push ENTIRE project to GitHub (honors .gitignore)
+# Local → GitHub → EC2 (SSH) deploy — no-delete for app/, safe nginx apply.
+# - Push ENTIRE project to GitHub (Git honors .gitignore)
 # - Mirror ENTIRE project → /opt/ssg-examples/repo (reference)
-# - Sync app/ → /usr/share/nginx/html
-#     • Uses rsync --delete but PROTECTS /jekyll, /hugo, /eleventy, /astro
-#       unless you have local content for that subdir (then we sync/replace it).
-# - Sync nginx/ → /etc/nginx/conf.d (AS-IS) with safe backup -> test -> reload (rollback on failure)
-# - No hardcoded nginx content. No local backups.
+# - Sync app/ → /usr/share/nginx/html   <-- NO --delete here (keeps /jekyll,/hugo,/eleventy,/astro)
+# - Sync nginx/ → /etc/nginx/conf.d (AS-IS) with backup → nginx -t → reload (rollback on failure)
+# - No generated configs. No S3/SSM.
 
 set -Eeuo pipefail
 
@@ -17,20 +15,22 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 REMOTE_REPO="/opt/ssg-examples/repo"
 DOCROOT="/usr/share/nginx/html"
 CONF_DIR="/etc/nginx/conf.d"
+
 APP_DIR="$PROJECT_ROOT/app"
 NGINX_DIR="$PROJECT_ROOT/nginx"
 
+# Keep [skip ci] if you don't want Actions to run
 MSG="${1:-site: local SSH deploy [skip ci]}"
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 
-# ---- 1) Push whole project TO GitHub (respects .gitignore) ----
+# 1) Push to GitHub (respects .gitignore)
 git add -A || true
 if ! git diff --cached --quiet; then
   git commit -m "$MSG" || true
 fi
 git push origin "$BRANCH" || true
 
-# ---- 2) Ensure remote tools & dirs ----
+# 2) Ensure remote tools & dirs
 [ -f "$SSH_KEY" ] || { echo "❌ SSH key not found: $SSH_KEY"; exit 1; }
 [ -n "$EC2_IP" ]  || { echo "❌ EC2_IP is empty"; exit 1; }
 
@@ -46,45 +46,20 @@ sudo mkdir -p /opt/ssg-examples/repo /usr/share/nginx/html /etc/nginx/conf.d
 SSH
 
 RSYNC_SSH=( -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" --rsync-path="sudo rsync" )
-FILTER_BASE=( --filter=':- .gitignore' )
+FILTER=( --filter=':- .gitignore' )
 EXCLUDES=( --exclude ".git/" --exclude ".git/**" --exclude ".DS_Store" )
 
-# ---- 3) Mirror ENTIRE project → reference dir ----
-rsync -az --delete "${FILTER_BASE[@]}" "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" \
+# 3) Mirror ENTIRE project → reference dir (ok to --delete here)
+rsync -az --delete "${FILTER[@]}" "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" \
   "$PROJECT_ROOT"/ ec2-user@"$EC2_IP":"$REMOTE_REPO"/
 
-# ---- 4) Build dynamic PROTECT rules for SSG dirs ----
-# Protect these dirs from deletion unless we actually have local content to replace them.
-build_protect_filters() {
-  local root="$1"; shift
-  local protects=()
-  for s in jekyll hugo eleventy astro; do
-    local dir="$root/$s"
-    if [ -d "$dir" ]; then
-      # Does local dir have any files? (not just empty dir)
-      if find "$dir" -type f -maxdepth 1 -print -quit | grep -q .; then
-        # Has some files -> DO NOT protect: allow rsync to replace it.
-        :
-      else
-        protects+=( "--filter=P /$s/**" )
-      fi
-    else
-      # No local dir -> protect remote copy
-      protects+=( "--filter=P /$s/**" )
-    fi
-  done
-  printf '%s\n' "${protects[@]}"
-}
-
-# ---- 5) Sync app/ → docroot with PROTECT filters ----
+# 4) Sync app/ → docroot  **NO --delete**
 if [ -d "$APP_DIR" ]; then
-  # Base filters + dynamic protects
-  PROTECTS=( $(build_protect_filters "$APP_DIR") )
-  rsync -az --delete "${FILTER_BASE[@]}" "${EXCLUDES[@]}" "${PROTECTS[@]}" \
-    "${RSYNC_SSH[@]}" "$APP_DIR"/ ec2-user@"$EC2_IP":"$DOCROOT"/
+  rsync -az "${FILTER[@]}" "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" \
+    "$APP_DIR"/ ec2-user@"$EC2_IP":"$DOCROOT"/
 fi
 
-# ---- 6) Safe sync nginx/ → conf.d (backup -> sync -> test -> reload, rollback on failure) ----
+# 5) Safe sync nginx/ → conf.d (backup → test → reload; rollback on failure)
 if [ -d "$NGINX_DIR" ]; then
   # (a) Remote backup BEFORE sync
   ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ec2-user@"$EC2_IP" 'bash -se' <<'SSH'
@@ -97,7 +72,7 @@ sudo rsync -a --delete "$CONF_DIR"/ "$BAK_DIR"/
 echo "$BAK_DIR" | sudo tee /tmp/last_conf_backup >/dev/null
 SSH
 
-  # (b) Ship YOUR nginx/ AS-IS
+  # (b) Ship YOUR nginx/ AS-IS (we DO allow delete here so confs stay in sync)
   rsync -az --delete "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" \
     "$NGINX_DIR"/ ec2-user@"$EC2_IP":"$CONF_DIR"/
 
@@ -123,7 +98,7 @@ echo "nginx reloaded (config OK)"
 SSH
 fi
 
-# ---- 7) Minimal visibility ----
+# 6) Minimal visibility (avoid SIGPIPE)
 echo "--- DOCROOT (first 60) ---"
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ec2-user@"$EC2_IP" \
   'sudo ls -la /usr/share/nginx/html | sed -n "1,60p" || true'
