@@ -1,7 +1,18 @@
-// .eleventy.js — minimal: keep your pathPrefix, just copy CSS/JS
+// .eleventy.js
 module.exports = function(eleventyConfig) {
-  // Copy assets from your source folders into the built site
-  eleventyConfig.addPassthroughCopy({ "eleventy_src/css": "css", "eleventy_src/js": "js" });
+  // Copy your source assets into the /eleventy/ path in the output
+  eleventyConfig.addPassthroughCopy({
+    "eleventy_src/css": "eleventy/css",
+    "eleventy_src/js": "eleventy/js"
+  });
 
-  return { pathPrefix: "/eleventy/" };
+  return {
+    pathPrefix: "/eleventy/",
+    dir: {
+      input: "eleventy_src",
+      includes: "_includes",
+      data: "_data",
+      output: "_site"
+    }
+  };
 };
