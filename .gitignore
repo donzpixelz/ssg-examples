@@ -36,4 +36,7 @@ terraform/.terraform/
 repo-backup.bundle
 
 site.tgz
-.logs
+.logs# Local backup files
+*.bak
+*.bak.*
+nginx/*.bak*
