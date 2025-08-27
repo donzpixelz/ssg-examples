@@ -2,7 +2,7 @@
 title: Home
 layout: base.njk
 ---
-🚀 Eleventy is working with a basic layout.
+🚀 Eleventy is working with a basic layout007.
 
 Edit `app/eleventy/_includes/base.njk` to change header, nav, or footer.
 

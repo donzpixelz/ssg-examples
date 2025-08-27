@@ -1,4 +1,3 @@
-{# base.njk — minimal reusable layout #}
 <!doctype html>
 <html lang="en">
 <head>
@@ -17,7 +16,6 @@
   <header>
     <h1 style="margin:.25rem 0">{{ title or "Welcome" }}</h1>
     <nav>
-      {# Use Eleventy’s url filter so links work at / or under a sub-path like /eleventy/ #}
       <a href="{{ '/' | url }}">Home</a>
       <a href="{{ '/about/' | url }}">About</a>
     </nav>
@@ -28,7 +26,7 @@
   </main>
 
   <footer>
-    © {{ now | date('yyyy') }} My 11ty Site
+    © My 11ty Site
   </footer>
 </body>
 </html>
