@@ -1,5 +1,5 @@
 ---
-// BaseLayout.astro
+const base = import.meta.env.BASE_URL; // will be "/" or "/astro/" based on config
 const { title } = Astro.props;
 ---
 <html lang="en">
@@ -11,13 +11,13 @@ const { title } = Astro.props;
         <header style="margin-bottom: 2rem;">
             <h1 style="margin: 0;">{title ?? "Welcome"}</h1>
             <nav>
-                <a href="/astro" style="margin-right: 1rem;">Home</a>
-                <a href="/astro/about/">About</a>
+                <a href={`${base}`} style="margin-right: 1rem;">Home</a>
+                <a href={`${base}about/`}>About</a>
             </nav>
         </header>
 
         <main>
-            <slot /> <!-- this is where page content goes -->
+            <slot />
         </main>
 
         <footer style="margin-top: 2rem; font-size: 0.9em; color: #666;">
