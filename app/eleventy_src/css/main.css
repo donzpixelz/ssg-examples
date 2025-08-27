@@ -188,3 +188,26 @@ nav a[aria-current="page"] { font-weight: 700; text-decoration: underline; }
 nav a.eleventy-link {
     font-family: 'Playball', 'Copperplate', 'Copperplate Gothic Light', fantasy, system-ui, sans-serif;
 }
+
+
+/* === Eleventy-only font & header cleanup === */
+
+/* Choose the special font just for “Eleventy” */
+:root {
+    --font-eleventy: 'Playball', 'Copperplate', 'Copperplate Gothic Light', fantasy, system-ui, sans-serif;
+}
+
+/* Move the old inline margin into CSS (no inline styles) */
+.header-outer h1 { margin: .25rem 0; }
+
+/* Only the word/link “Eleventy” gets the special font */
+.font-eleventy,
+nav a.eleventy-link {
+    font-family: var(--font-eleventy);
+}
+
+/* Keep the current-page affordance */
+nav a[aria-current="page"] {
+    font-weight: 700;
+    text-decoration: underline;
+}

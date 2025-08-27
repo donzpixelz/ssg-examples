@@ -14,9 +14,14 @@
 </head>
 <body>
 <header class="header-outer">
-  <h1 style="margin:.25rem 0">
-    {% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}
+  <h1>
+    {% if title %}
+      {{ title }}
+    {% else %}
+      <span class="font-eleventy">Eleventy</span>
+    {% endif %}
   </h1>
+
   <nav>
     <a href="{{ '/' | url }}">Home</a>
     <a href="{{ '/eleventy/' | url }}"
@@ -28,6 +33,7 @@
     <a href="{{ '/contact/' | url }}">Contact</a>
   </nav>
 </header>
+
 
 
   <main>
