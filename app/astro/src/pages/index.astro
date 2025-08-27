@@ -1,16 +1,7 @@
 ---
-const title = "Astro Example";
+import BaseLayout from "../layouts/base-layout.astro";
 ---
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>{title}</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-  </head>
-  <body>
-    <main>
-      <h1>Astro Example</h1>
-      <p>This is a minimal <strong>Astro</strong> site that will be published at <strong>/astro</strong>.</p>
-    </main>
-  </body>
-</html>
+<BaseLayout title="Home">
+  <p>🚀 Astro is working with a basic layout.</p>
+  <p>Edit <code>src/layouts/BaseLayout.astro</code> to adjust header, footer, etc.</p>
+</BaseLayout>
