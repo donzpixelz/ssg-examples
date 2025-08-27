@@ -12,28 +12,22 @@
     nav a { margin-right: 1rem; text-decoration: none; }
     footer { border-top: 1px solid #eee; color: #666; font-size: .9rem; }
   </style>
+  <link rel="stylesheet" href="/eleventy/css/main.css?v=1">
 </head>
 <body>
 <header class="header-outer">
   <h1>
-    {% if title %}
-      {{ title }}
-    {% else %}
-      <span class="font-eleventy">Eleventy</span>
-    {% endif %}
+    {% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}
   </h1>
-
   <nav>
     <a href="{{ '/' | url }}">Home</a>
-    <a href="{{ '/eleventy/' | url }}"
-       class="eleventy-link"
-       {% if page.url contains '/eleventy/' %}aria-current="page"{% endif %}>
-      Eleventy
-    </a>
+    <a href="{{ '/eleventy/' | url }}" class="eleventy-link"
+       {% if page.url contains '/eleventy/' %}aria-current="page"{% endif %}>Eleventy</a>
     <a href="{{ '/about/' | url }}">About</a>
     <a href="{{ '/contact/' | url }}">Contact</a>
   </nav>
 </header>
+
 
 
 

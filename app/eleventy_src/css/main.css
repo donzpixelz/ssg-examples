@@ -202,8 +202,13 @@ nav a.eleventy-link {
 
 /* Only the word/link “Eleventy” gets the special font */
 .font-eleventy,
-nav a.eleventy-link {
-    font-family: var(--font-eleventy);
+nav a.eleventy-link {/* === Eleventy-only font & header cleanup === */
+:root { --font-eleventy: 'Playball','Copperplate','Copperplate Gothic Light', fantasy, system-ui, sans-serif; }
+.header-outer h1 { margin: .25rem 0; }
+.font-eleventy, nav a.eleventy-link { font-family: var(--font-eleventy); }
+nav a[aria-current="page"] { font-weight: 700; text-decoration: underline; }
+
+font-family: var(--font-eleventy);
 }
 
 /* Keep the current-page affordance */
