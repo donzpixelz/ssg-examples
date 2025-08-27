@@ -72,7 +72,7 @@ jobs:
           set -euo pipefail
           BUILD="__deploy_root"
           rm -rf "$BUILD"; mkdir -p "$BUILD"
-          rsync -av --delete app/ "$BUILD"/
+          rsync -av --delete --exclude 'jekyll/**' --exclude 'hugo/**' --exclude 'eleventy/**' --exclude 'astro/**' app/ "$BUILD"/
 
           # Jekyll
           if [ -d app/jekyll ] && { [ -f app/jekyll/_config.yml ] || [ -f app/jekyll/Gemfile ]; }; then
@@ -96,9 +96,9 @@ jobs:
 
           # Eleventy
           if [ -d app/eleventy ] && { grep -q '"@11ty/eleventy"' app/eleventy/package.json 2>/dev/null || ls app/eleventy/.eleventy.* >/dev/null 2>&1; }; then
-            pushd app/eleventy >/dev/null
+            pushd app/eleventy_src >/dev/null
             if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
-            npx @11ty/eleventy --output "$GITHUB_WORKSPACE/$BUILD/eleventy"
+            npx @11ty/eleventy --config="$GITHUB_WORKSPACE/.eleventy.js" --output="$GITHUB_WORKSPACE/$BUILD/eleventy"
             popd >/dev/null
           fi
 
