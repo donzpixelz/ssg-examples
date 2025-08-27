@@ -53,6 +53,26 @@ EXCLUDES=( --exclude ".git/" --exclude ".git/**" --exclude ".DS_Store" )
 rsync -az --delete "${FILTER[@]}" "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" \
   "$PROJECT_ROOT"/ ec2-user@"$EC2_IP":"$REMOTE_REPO"/
 
+# between 3 and 4
+# 3.5) Build Eleventy locally (sources → built HTML)
+ELEVENTY_SRC="$PROJECT_ROOT/app/eleventy_src"
+ELEVENTY_OUT="$PROJECT_ROOT/app/eleventy"
+
+if [ -d "$ELEVENTY_SRC" ] && grep -q '"@11ty/eleventy"' "$ELEVENTY_SRC/package.json" 2>/dev/null; then
+  echo "==> Building Eleventy locally: $ELEVENTY_SRC → $ELEVENTY_OUT"
+  pushd "$ELEVENTY_SRC" >/dev/null
+  # install deps only if needed
+  if [ ! -d node_modules ]; then
+    if [ -f package-lock.json ]; then npm ci; else npm install; fi
+  fi
+  npx @11ty/eleventy \
+    --config="$PROJECT_ROOT/.eleventy.js" \
+    --input="$ELEVENTY_SRC" \
+    --output="$ELEVENTY_OUT"
+  popd >/dev/null
+fi
+
+
 # 4) Sync app/ → docroot  **NO --delete**
 if [ -d "$APP_DIR" ]; then
   rsync -az "${FILTER[@]}" "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" \
