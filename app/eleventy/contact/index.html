@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>{% if title %}{{ title }}{% else %}My 11ty Site{% endif %}</title>
+  <title>Contact</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; }
@@ -14,16 +14,16 @@
 </head>
 <body>
   <header>
-    <h1 style="margin:.25rem 0">{% if title %}{{ title }}{% else %}Welcome{% endif %}</h1>
+    <h1 style="margin:.25rem 0">Contact</h1>
     <nav>
-     <a href="{{ '/' | url }}">Home</a>
-     <a href="{{ '/about/' | url }}">About</a>
-     <a href="{{ '/contact/' | url }}">Contact</a>
+      <a href="/eleventy/">Home</a>
+      <a href="/eleventy/about/">About</a>
     </nav>
   </header>
 
   <main>
-    {{ content | safe }}
+    <p>This is the <strong>Contact</strong> page.</p>
+
   </main>
 
   <footer>
