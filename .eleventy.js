@@ -1,11 +1,9 @@
-// /.eleventy.js (repo root)
 module.exports = function(eleventyConfig) {
+  eleventyConfig.addPassthroughCopy({ "eleventy_src/css": "css", "eleventy_src/js": "js" });
   return {
-    pathPrefix: "/eleventy/",
-    dir: {
-      input: "app/eleventy_src",  // where your content/layouts live now
-      includes: "_includes",
-      output: "app/eleventy"      // <-- BUILT HTML goes here (your deploy already uses this)
-    }
+    dir: { input: "eleventy_src", includes: "_includes", data: "_data", output: "_site" },
+    markdownTemplateEngine: "liquid",
+    htmlTemplateEngine: "liquid",
+    templateFormats: ["liquid","md","html"]
   };
 };
