@@ -1,8 +1,0 @@
-
-    location ^~ /hugo/ {
-        root /usr/share/nginx/html;
-        index index.html;
-        # Order matters: check a directory index first, then file, finally fallback
-        try_files $uri/index.html $uri /hugo/index.html;
-        autoindex off;
-    }
