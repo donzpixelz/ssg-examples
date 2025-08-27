@@ -10,16 +10,16 @@
 .vscode/
 
 # ──────────────────────────
-# Terraform (keep the lock file)
+# Terraform (inside /terraform)
 # ──────────────────────────
-*.tfstate
-*.tfstate.*
-.terraform/
-crash.log
-crash.*.log
-terraform.tfvars
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/crash.log
+terraform/crash.*.log
+terraform/terraform.tfvars
 # Keep dependency lockfile (recommended to commit)
-!.terraform.lock.hcl
+!terraform/.terraform.lock.hcl
 
 # ──────────────────────────
 # Keys / secrets created locally
@@ -27,13 +27,13 @@ terraform.tfvars
 *.pem
 
 # ──────────────────────────
-# Backups & archives you mentioned
+# Backups & archives
 # ──────────────────────────
 repo-backup.bundle
 site.tgz
 
 # ──────────────────────────
-# Logs (folder you showed in the screenshot)
+# Logs (local dev only)
 # ──────────────────────────
 .logs/
 *.log
@@ -47,22 +47,29 @@ site.tgz
 nginx/*.bak*
 
 # ──────────────────────────
-# Static-site generators (common build outputs)
+# Static-site generators (per app/ subfolder)
 # ──────────────────────────
 # Hugo
-public/
-resources/
-.hugo_build.lock
+app/hugo/public/
+app/hugo/resources/
+app/hugo/.hugo_build.lock
 
-# Jekyll / Eleventy
-_site/
-.jekyll-cache/
-.sass-cache/
+# Jekyll
+app/jekyll/_site/
+app/jekyll/.jekyll-cache/
+app/jekyll/.sass-cache/
 
-# Astro / general Node builds
-dist/
+# Eleventy
+app/eleventy/_site/
+
+# Astro
+app/astro/dist/
 
 # ──────────────────────────
 # Node ecosystem (Astro/Eleventy typically use Node)
 # ──────────────────────────
-node_m_
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn/cache/
