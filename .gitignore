@@ -1,42 +1,68 @@
-# macOS
+# ──────────────────────────
+# OS junk
+# ──────────────────────────
 .DS_Store
-**/.DS_Store
 
-# IDEs
+# ──────────────────────────
+# IDEs / Editors
+# ──────────────────────────
 .idea/
 .vscode/
 
-# Terraform
+# ──────────────────────────
+# Terraform (keep the lock file)
+# ──────────────────────────
 *.tfstate
 *.tfstate.*
 .terraform/
-*/.terraform/
 crash.log
+crash.*.log
 terraform.tfvars
+# Keep dependency lockfile (recommended to commit)
+!.terraform.lock.hcl
 
-# Large backups
-repo-backup.bundle
-
-# macOS
-.DS_Store
-**/.DS_Store
-
-# IDE
-.idea/
-
-# Terraform local state
-terraform.tfstate
-terraform.tfstate.*
-terraform/.terraform/
-
-# Keys
+# ──────────────────────────
+# Keys / secrets created locally
+# ──────────────────────────
 *.pem
 
-# Large backup
+# ──────────────────────────
+# Backups & archives you mentioned
+# ──────────────────────────
 repo-backup.bundle
-
 site.tgz
-.logs# Local backup files
+
+# ──────────────────────────
+# Logs (folder you showed in the screenshot)
+# ──────────────────────────
+.logs/
+*.log
+*.log.*
+
+# ──────────────────────────
+# Local backup files
+# ──────────────────────────
 *.bak
 *.bak.*
 nginx/*.bak*
+
+# ──────────────────────────
+# Static-site generators (common build outputs)
+# ──────────────────────────
+# Hugo
+public/
+resources/
+.hugo_build.lock
+
+# Jekyll / Eleventy
+_site/
+.jekyll-cache/
+.sass-cache/
+
+# Astro / general Node builds
+dist/
+
+# ──────────────────────────
+# Node ecosystem (Astro/Eleventy typically use Node)
+# ──────────────────────────
+node_m_
