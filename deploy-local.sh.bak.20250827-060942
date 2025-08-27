@@ -2,37 +2,40 @@
 # Minimal local → GitHub → EC2 (SSH) deploy.
 # Does ONLY:
 #   1) Push whole project to GitHub (Git honors .gitignore)
-#   2) Mirror project to server; sync app/ and nginx/ as-is
-#   3) nginx -t && reload (no config writing)
+#   2) Mirror project to server; sync app/ and nginx/ to their runtime paths
+#   3) Test & reload nginx
+# NO nginx content is generated here. Whatever is in ./nginx is what gets deployed.
 
 set -Eeuo pipefail
 
-# Filled in by installer:
+# Fill-ins are injected by the installer; edit if placeholders remain.
 SSH_KEY="/Users/donwilson/.ssh/ssg-examples-key.pem"
 EC2_IP="18.220.33.0"
 
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+PROJECT_ROOT="$(pwd)"
 REMOTE_REPO="/opt/ssg-examples/repo"
 DOCROOT="/usr/share/nginx/html"
 CONF_DIR="/etc/nginx/conf.d"
+
 APP_DIR="$PROJECT_ROOT/app"
 NGINX_DIR="$PROJECT_ROOT/nginx"
 
-# Keep [skip ci] if you do NOT want Actions to run
+# Commit message; keep [skip ci] if you do NOT want GitHub Actions to run
 MSG="${1:-site: local SSH deploy [skip ci]}"
-BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 
-# 1) Push to GitHub (respects .gitignore)
+# --- 1) Push whole project TO GitHub (Git respects .gitignore) ---
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 git add -A || true
 if ! git diff --cached --quiet; then
   git commit -m "$MSG" || true
 fi
 git push origin "$BRANCH" || true
 
-# 2) Local → server via rsync (respects .gitignore; no nginx edits)
+# --- 2) FROM LOCAL → instance via SSH/rsync (no nginx logic here) ---
 [ -f "$SSH_KEY" ] || { echo "❌ SSH key not found: $SSH_KEY"; exit 1; }
 [ -n "$EC2_IP" ]  || { echo "❌ EC2_IP is empty"; exit 1; }
 
+# Preflight remote (rsync, dirs)
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ec2-user@"$EC2_IP" 'bash -se' <<'SSH'
 set -Eeuo pipefail
 if ! command -v rsync >/dev/null 2>&1; then
@@ -48,20 +51,20 @@ RSYNC_SSH=( -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" --rsync-path="sudo 
 FILTER=( --filter=':- .gitignore' )
 EXCLUDES=( --exclude ".git/" --exclude ".git/**" --exclude ".DS_Store" )
 
-# Mirror entire project (reference copy on server)
+# (a) Mirror the whole project to /opt/ssg-examples/repo (reference copy; honors .gitignore)
 rsync -az --delete "${FILTER[@]}" "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" "$PROJECT_ROOT"/ ec2-user@"$EC2_IP":"$REMOTE_REPO"/
 
-# Runtime content: app/ → docroot
+# (b) Runtime: app/ → /usr/share/nginx/html (honors .gitignore; --delete keeps it clean)
 if [ -d "$APP_DIR" ]; then
   rsync -az --delete "${FILTER[@]}" "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" "$APP_DIR"/ ec2-user@"$EC2_IP":"$DOCROOT"/
 fi
 
-# Server conf: nginx/ → conf.d (as-is; no generation here)
+# (c) Server config: nginx/ → /etc/nginx/conf.d (ships your files as-is; no logic here)
 if [ -d "$NGINX_DIR" ]; then
   rsync -az --delete "${EXCLUDES[@]}" "${RSYNC_SSH[@]}" "$NGINX_DIR"/ ec2-user@"$EC2_IP":"$CONF_DIR"/
 fi
 
-# 3) nginx -t && reload (no content changes)
+# --- 3) Test & reload nginx (no edits to configs) ---
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ec2-user@"$EC2_IP" 'bash -se' <<'SSH'
 set -Eeuo pipefail
 BIN="/usr/sbin/nginx"; command -v "$BIN" >/dev/null 2>&1 || BIN="$(command -v nginx || true)"
@@ -69,9 +72,9 @@ if [ -n "$BIN" ]; then
   sudo "$BIN" -t
   sudo systemctl reload nginx || sudo "$BIN" -s reload || true
 fi
-# Minimal visibility (avoid SIGPIPE)
-echo "--- DOCROOT ---"
-sudo ls -la /usr/share/nginx/html | sed -n '1,40p' || true
+# Quick visibility (no SIGPIPE)
+echo "--- DOCROOT sample ---"
+sudo ls -la /usr/share/nginx/html | sed -n '1,50p' || true
 SSH
 
 echo "✅ Local push → GitHub AND local → server sync complete → http://$EC2_IP/?buster=$(date +%s)"
