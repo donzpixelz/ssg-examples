@@ -95,7 +95,7 @@ jobs:
           fi
 
           # Eleventy
-          if [ -d app/eleventy ] && { grep -q '"@11ty/eleventy"' app/eleventy/package.json 2>/dev/null || ls app/eleventy/.eleventy.* >/dev/null 2>&1; }; then
+          if [ -d app/eleventy_src ] && grep -q '"@11ty/eleventy"' app/eleventy_src/package.json 2>/dev/null; then
             pushd app/eleventy_src >/dev/null
             if [ -f package-lock.json ]; then npm ci; elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i; else npm install; fi
             npx @11ty/eleventy --config="$GITHUB_WORKSPACE/.eleventy.js" --input="$GITHUB_WORKSPACE/app/eleventy_src" --output="$GITHUB_WORKSPACE/$BUILD/eleventy"
