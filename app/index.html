@@ -57,12 +57,8 @@
   <section class="dev">
     <h2>Dev helpers</h2>
     <p>After editing files under <code class="inline">app/</code>, use:</p>
-    <p><code class="inline">./deploy-app.sh</code> — push only app/ changes</p>
-    <p><code class="inline">./deploy-app-pr.sh</code> — create a PR with app/ changes</p>
-    <p>To trigger later:
-      <code class="inline">gh workflow run "Deploy site (/app) via SSM" --repo "donzpixelz/ssg-examples" --ref main</code>
-      <code class="inline">gh workflow run "Deploy entire repo via SSM" --repo "donzpixelz/ssg-examples" --ref main</code>
-      <code class="inline"✅ Done. Open GitHub → Actions. You should see ONE run (the site deploy).</code></p>
+    <p><code class="inline">./deploy-local.sh</code> — deploy app/ changes using SSH</p>
+    <p><code class="inline">./deploy-site-now "Message"</code> — deploy changes using SSM and GitHub Actions</p>
   </section>
 
   <footer class="footer-outer">
