@@ -1,11 +1,34 @@
-<!DOCTYPE html>
+{# base.njk — minimal reusable layout #}
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>{{ title or "Eleventy Example" }}</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "My 11ty Site" }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; }
+    header, main, footer { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+    header { border-bottom: 1px solid #eee; }
+    nav a { margin-right: 1rem; text-decoration: none; }
+    footer { border-top: 1px solid #eee; color: #666; font-size: .9rem; }
+  </style>
 </head>
 <body>
-  {{ content | safe }}
+  <header>
+    <h1 style="margin:.25rem 0">{{ title or "Welcome" }}</h1>
+    <nav>
+      {# Use Eleventy’s url filter so links work at / or under a sub-path like /eleventy/ #}
+      <a href="{{ '/' | url }}">Home</a>
+      <a href="{{ '/about/' | url }}">About</a>
+    </nav>
+  </header>
+
+  <main>
+    {{ content | safe }}
+  </main>
+
+  <footer>
+    © {{ now | date('yyyy') }} My 11ty Site
+  </footer>
 </body>
 </html>

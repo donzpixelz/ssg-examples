@@ -1,7 +1,8 @@
 ---
-title: Eleventy Example
-layout: base
+title: Home
+layout: base.njk
 ---
-# Eleventy Example
+🚀 Eleventy is working with a basic layout.
 
-This is a minimal **Eleventy** site that will be published at **/eleventy**.
+Edit `app/eleventy/_includes/base.njk` to change header, nav, or footer.
+
