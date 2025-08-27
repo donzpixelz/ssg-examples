@@ -13,21 +13,23 @@
   </style>
 </head>
 <body>
-<header>
-  <!-- Make Eleventy the default H1 if no title is supplied -->
-  <h1 style="margin:.25rem 0">{% if title %}{{ title }}{% else %}Eleventy{% endif %}</h1>
+<header class="header-outer">
+  <h1 style="margin:.25rem 0">
+    {% if title %}
+      {{ title }}
+    {% else %}
+      <span class="font-eleventy">Eleventy</span>
+    {% endif %}
+  </h1>
 
-  <nav>
-    <a href="{{ '/' | url }}">Home</a>
-    <!-- Add a dedicated Eleventy link and highlight it when you're on /eleventy/ -->
-    <a href="{{ '/eleventy/' | url }}"
-       {% if page.url contains '/eleventy/' %}aria-current="page" style="font-weight:700; text-decoration:underline"{% endif %}>
-      Eleventy
-    </a>
-    <a href="{{ '/about/' | url }}">About</a>
-    <a href="{{ '/contact/' | url }}">Contact</a>
+  <nav aria-label="Primary">
+    <a href="{{ '/' | url }}" {% if page.url == '/' %}aria-current="page"{% endif %}>Home</a>
+    <a href="{{ '/eleventy/' | url }}" class="eleventy-link" {% if page.url contains '/eleventy/' %}aria-current="page"{% endif %}>Eleventy</a>
+    <a href="{{ '/about/' | url }}" {% if page.url contains '/about/' %}aria-current="page"{% endif %}>About</a>
+    <a href="{{ '/contact/' | url }}" {% if page.url contains '/contact/' %}aria-current="page"{% endif %}>Contact</a>
   </nav>
 </header>
+
 
   <main>
     {{ content | safe }}
