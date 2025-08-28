@@ -1,5 +1,4 @@
 ---
 title: Contact
-permalink: /contact/
 ---
-This is the **Contact** page.
+Contact page - 007.

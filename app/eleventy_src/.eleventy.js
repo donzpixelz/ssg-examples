@@ -1,21 +1,23 @@
 // app/eleventy_src/.eleventy.js
 module.exports = function (eleventyConfig) {
-    // Don’t let .gitignore hide templates
+    // Don’t let .gitignore hide templates in CI
     eleventyConfig.setUseGitIgnore(false);
 
-    // Make layout robust: if it's not a string or false, fall back to base.njk.
+    // Copy assets so the CSS/JS exist at /eleventy/css and /eleventy/js
+    eleventyConfig.addPassthroughCopy({ "css": "eleventy/css", "js": "eleventy/js" });
+
+    // If a page has a broken `layout:` (object/array), don’t crash—render without layout.
     eleventyConfig.addGlobalData("eleventyComputed", {
         layout: (data) => {
             if (data.layout === false) return false;
-            if (typeof data.layout === "string") return data.layout;
-            return "base.njk"; // safe default
+            return typeof data.layout === "string" ? data.layout : "base.njk";
         },
     });
 
     return {
         pathPrefix: "/eleventy/",
         dir: { input: ".", includes: "_includes", data: "_data" },
-        templateFormats: ["njk", "liquid", "md", "html"],
+        templateFormats: ["md", "njk", "html", "liquid"],
         markdownTemplateEngine: "liquid",
         htmlTemplateEngine: "liquid",
     };
