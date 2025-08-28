@@ -1,5 +1,6 @@
 ---
-layout: false
-permalink: /eleventy/health.html
+title: Home
+layout: base.njk
+permalink: /
 ---
-OK789
+This is the **Home** page123.

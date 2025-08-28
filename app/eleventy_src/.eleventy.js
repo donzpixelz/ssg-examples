@@ -1,12 +1,11 @@
 // app/eleventy_src/.eleventy.js
-// Ignore .gitignore rules and only use simple engines.
-// Build from THIS folder to _site.
 module.exports = function(eleventyConfig) {
     eleventyConfig.setUseGitIgnore(false);
+    // keep your css/js copying if you had it:
+    // eleventyConfig.addPassthroughCopy({ "css": "eleventy/css", "js": "eleventy/js" });
+
     return {
-        dir: { input: ".", output: "_site" },
-        templateFormats: ["md","html","liquid"],
-        markdownTemplateEngine: "liquid",
-        htmlTemplateEngine: "liquid"
+        pathPrefix: "/eleventy/",
+        dir: { input: ".", includes: "_includes", data: "_data" }
     };
 };
