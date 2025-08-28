@@ -78,6 +78,28 @@
     .container p{margin:.75em 0;color:var(--text)}
     img{max-width:100%;height:auto;display:block}
     code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Roboto Mono",monospace}
+
+    /* --- minimal footer --- */
+    .footer-outer{
+      max-width:var(--maxw);
+      margin:0 auto 24px;
+      padding:12px 16px;
+      background:#fff;
+      border:1px solid var(--ring);
+      border-radius:var(--radius);
+      color:var(--muted);
+      font-size:14px;
+    }
+    .footer-outer .row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .footer-outer nav{display:flex; gap:12px; flex-wrap:wrap;}
+    .footer-outer a{opacity:.95}
+    .footer-outer a:hover{opacity:1}
   </style>
 </head>
 <body>
@@ -94,5 +116,18 @@
   <main class="container">
     {{ content | safe }}
   </main>
+
+  <footer class="footer-outer">
+    <div class="row">
+      <p style="margin:0;">
+        © {% if title %}{{ title }}{% else %}Eleventy Example{% endif %} · Built with <a href="https://www.11ty.dev/">Eleventy</a>
+      </p>
+      <nav aria-label="Footer">
+        <a href="/eleventy/">Home</a>
+        <a href="/eleventy/about/">About</a>
+        <a href="/eleventy/contact/">Contact</a>
+      </nav>
+    </div>
+  </footer>
 </body>
 </html>
