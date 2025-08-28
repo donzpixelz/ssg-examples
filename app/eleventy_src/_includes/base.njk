@@ -108,8 +108,8 @@
       <a href="{{ '/about/' | url }}" {% if here == ('/about/' | url) %}aria-current="page"{% endif %}>About</a>
       <a href="{{ '/contact/' | url }}" {% if here == ('/contact/' | url) %}aria-current="page"{% endif %}>Contact</a>
       <!-- Add these if you want them in the header too -->
-      <!-- <a href="{{ '/notes/' | url }}" {% if here == ('/notes/' | url) %}aria-current="page"{% endif %}>Notes</a> -->
-      <!-- <a href="{{ '/blog/' | url }}"  {% if here == ('/blog/'  | url) %}aria-current="page"{% endif %}>Blog</a> -->
+      <a href="{{ '/notes/' | url }}" {% if here == ('/notes/' | url) %}aria-current="page"{% endif %}>Notes</a>
+      <a href="{{ '/blog/' | url }}"  {% if here == ('/blog/'  | url) %}aria-current="page"{% endif %}>Blog</a>
     </nav>
 
     <p style="text-align: center;">{% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}</p>
