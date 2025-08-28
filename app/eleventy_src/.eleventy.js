@@ -1,5 +1,13 @@
 // app/eleventy_src/.eleventy.js
-// Forward to the repo-root config so builds running from app/eleventy_src
-// still use the SAME .eleventy.js you keep at the project root.
-const path = require("path");
-module.exports = require(path.resolve(__dirname, "../../.eleventy.js"));
+// Build from *this* folder, keep your /eleventy/ prefix,
+// copy css/js, and avoid Nunjucks entirely.
+module.exports = function(eleventyConfig) {
+    eleventyConfig.addPassthroughCopy({ "css": "eleventy/css", "js": "eleventy/js" });
+    return {
+        pathPrefix: "/eleventy/",
+        dir: { input: ".", includes: "_includes", data: "_data", output: "_site" },
+        templateFormats: ["liquid","html","md"],
+        markdownTemplateEngine: "liquid",
+        htmlTemplateEngine: "liquid"
+    };
+};
