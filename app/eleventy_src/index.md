@@ -3,4 +3,4 @@ title: Home
 layout: base.njk
 permalink: /
 ---
-Welcome - 007 007.
+Welcome - 007.
