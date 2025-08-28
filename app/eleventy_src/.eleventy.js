@@ -1,4 +1,12 @@
 // app/eleventy_src/.eleventy.js
-// Vanilla config: don't change dirs, engines, or prefixes.
-// Lets Eleventy use its defaults and just write templates it finds.
-module.exports = function () { return {}; };
+// Ignore .gitignore rules and only use simple engines.
+// Build from THIS folder to _site.
+module.exports = function(eleventyConfig) {
+    eleventyConfig.setUseGitIgnore(false);
+    return {
+        dir: { input: ".", output: "_site" },
+        templateFormats: ["md","html","liquid"],
+        markdownTemplateEngine: "liquid",
+        htmlTemplateEngine: "liquid"
+    };
+};
