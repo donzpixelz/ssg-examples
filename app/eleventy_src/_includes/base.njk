@@ -102,13 +102,16 @@
 <body>
   <header class="header-outer">
     <h1 class="font-eleventy" style="text-align:center;">Eleventy Example</h1>
+    {% set here = page.url | url %}
     <nav aria-label="Primary">
-      <a href="/eleventy/" class="eleventy-link">Home</a>
-      <a href="/eleventy/notes/">Notes</a>
-      <a href="/eleventy/blog/">Blog</a>
-      <a href="/eleventy/about/">About</a>
-      <a href="/eleventy/contact/">Contact</a>
+      <a href="{{ '/' | url }}" class="eleventy-link" {% if here == ('/' | url) %}aria-current="page"{% endif %}>Home</a>
+      <a href="{{ '/about/' | url }}" {% if here == ('/about/' | url) %}aria-current="page"{% endif %}>About</a>
+      <a href="{{ '/contact/' | url }}" {% if here == ('/contact/' | url) %}aria-current="page"{% endif %}>Contact</a>
+      <!-- Add these if you want them in the header too -->
+      <!-- <a href="{{ '/notes/' | url }}" {% if here == ('/notes/' | url) %}aria-current="page"{% endif %}>Notes</a> -->
+      <!-- <a href="{{ '/blog/' | url }}"  {% if here == ('/blog/'  | url) %}aria-current="page"{% endif %}>Blog</a> -->
     </nav>
+
     <p style="text-align: center;">{% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}</p>
   </header>
 
