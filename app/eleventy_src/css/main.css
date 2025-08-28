@@ -223,3 +223,10 @@ nav a[aria-current="page"] {
 .font-eleventy, nav a.eleventy-link { font-family: var(--font-eleventy); }
 .header-outer h1 { margin: .25rem 0; }
 
+/* Headings & paragraph spacing inside the content area */
+.container h1,
+.container h2,
+.container h3,
+.container h4 { margin: 1.2em 0 .5em; }
+
+.container p { margin: .75em 0; }

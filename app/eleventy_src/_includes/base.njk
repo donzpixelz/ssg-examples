@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/eleventy/css/main.css">
 
   <style>
-    /* --- minimal baseline so things look sane --- */
+    /* --- minimal baseline; typography (h1, h2, p) comes from main.css --- */
     :root{
       --brand:#3466cb;
       --text:#111;
@@ -37,11 +37,9 @@
       margin:24px auto;
       max-width:var(--maxw);
     }
-    /* .header-outer h1{
-      margin:0 0 8px;
-      font-size:28px;
-      line-height:1.2;
-    } */
+    /* spacing only; main.css controls h1 font/size/color */
+    .header-outer h1{ margin:0 0 8px; line-height:1.2; }
+
     .header-outer nav{
       display:flex;
       gap:12px;
@@ -67,15 +65,14 @@
       box-shadow:0 2px 8px rgba(0,0,0,.04);
     }
 
-    /* Optional: make “Eleventy” stand out if you use <span class="font-eleventy"> */
+    /* Optional: special font only where you use .font-eleventy */
     .font-eleventy{
       font-family:'Playball','Copperplate','Copperplate Gothic Light',fantasy,system-ui,sans-serif;
       letter-spacing:.2px;
     }
 
-    /* Tidy default content spacing */
-    .container :where(h1,h2,h3,h4){margin:1.2em 0 .5em}
-    .container p{margin:.75em 0;color:var(--text)}
+    /* Removed: .container h1/h2... and .container p rules so main.css wins */
+
     img{max-width:100%;height:auto;display:block}
     code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Roboto Mono",monospace}
 
@@ -104,13 +101,13 @@
 </head>
 <body>
   <header class="header-outer">
-    <h1 style="text-align: center; class=font-eleventy;">Eleventy Example</h1>
+    <h1 class="font-eleventy" style="text-align:center;">Eleventy Example</h1>
     <nav aria-label="Primary">
       <a href="/eleventy/" class="eleventy-link">Home</a>
       <a href="/eleventy/about/">About</a>
       <a href="/eleventy/contact/">Contact</a>
     </nav>
-     <p style="text-align: center;">{% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}</p>
+    <p>{% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}</p>
   </header>
 
   <main class="container">
