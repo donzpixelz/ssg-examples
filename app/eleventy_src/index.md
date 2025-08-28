@@ -6,7 +6,7 @@ permalink: /
 
 ## Welcome 👋
 
-007 - This is a tiny Eleventy site meant to be **easy to change**.  
+This is a tiny Eleventy site meant to be **easy to change**.  
 You’ll find plain Markdown pages, a single base layout, and one stylesheet you can shape however you like.
 
 ---
