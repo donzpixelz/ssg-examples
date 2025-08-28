@@ -82,12 +82,13 @@
 </head>
 <body>
   <header class="header-outer">
-    <h1>{% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}</h1>
+    <h1>Eleventy Example</h1>
     <nav aria-label="Primary">
       <a href="/eleventy/" class="eleventy-link">Home</a>
       <a href="/eleventy/about/">About</a>
       <a href="/eleventy/contact/">Contact</a>
     </nav>
+    <p>{% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}</p>
   </header>
 
   <main class="container">
