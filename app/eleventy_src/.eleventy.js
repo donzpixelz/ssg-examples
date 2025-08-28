@@ -1,26 +1,22 @@
 // app/eleventy_src/.eleventy.js
-// Harden layouts so bad values can't crash the build.
-// Also set a sane default layout that points at your fixed base.njk.
-
-module.exports = function(eleventyConfig) {
+module.exports = function (eleventyConfig) {
     // Don’t let .gitignore hide templates
     eleventyConfig.setUseGitIgnore(false);
 
-    // Default layout for normal pages (must be a STRING)
-    eleventyConfig.addGlobalData("layout", "base.njk");
-
-    // If any page sets layout to a non-string (object/array), disable layout for that page
+    // Make layout robust: if it's not a string or false, fall back to base.njk.
     eleventyConfig.addGlobalData("eleventyComputed", {
-        layout: (data) =>
-            typeof data.layout === "string" || data.layout === false ? data.layout : false
+        layout: (data) => {
+            if (data.layout === false) return false;
+            if (typeof data.layout === "string") return data.layout;
+            return "base.njk"; // safe default
+        },
     });
 
     return {
         pathPrefix: "/eleventy/",
         dir: { input: ".", includes: "_includes", data: "_data" },
-        // Allow all common formats; if CI limits formats, this still won't hurt.
-        templateFormats: ["liquid","md","html","njk"],
+        templateFormats: ["njk", "liquid", "md", "html"],
         markdownTemplateEngine: "liquid",
-        htmlTemplateEngine: "liquid"
+        htmlTemplateEngine: "liquid",
     };
 };
