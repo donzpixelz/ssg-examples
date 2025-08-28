@@ -17,8 +17,9 @@
 <body>
 <header class="header-outer">
   <h1>
-    {% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}
+    Eleventy
   </h1>
+  <p>{% if title %}{{ title }}{% else %}<span class="font-eleventy">Eleventy</span>{% endif %}</p>
   <nav>
     <a href="{{ '/' | url }}">Home</a>
     <a href="{{ '/eleventy/' | url }}" class="eleventy-link"
