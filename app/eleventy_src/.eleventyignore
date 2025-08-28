@@ -1,2 +1,1 @@
-*
-!index.liquid
+# intentionally empty so Eleventy does not ignore your templates
