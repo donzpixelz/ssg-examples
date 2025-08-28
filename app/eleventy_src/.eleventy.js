@@ -1,20 +1,22 @@
 // app/eleventy_src/.eleventy.js
-// Build from THIS folder; disable Nunjucks entirely; disable layouts globally.
+// Minimal, stable config from the folder CI is using.
 module.exports = function(eleventyConfig) {
-    // Do not inherit ignores from .gitignore (prevents "0 files" surprises)
+    // Do NOT inherit .gitignore (prevents "0 files" surprises)
     eleventyConfig.setUseGitIgnore(false);
 
-    // Force NO layout everywhere (even if a file sets one)
+    // Disable layouts globally (avoids layout engine compile errors)
     eleventyConfig.addGlobalData("eleventyComputed", { layout: () => false });
 
-    // Copy css/js so they appear under /eleventy/… in the output
-    eleventyConfig.addPassthroughCopy({ "css": "eleventy/css", "js": "eleventy/js" });
-
     return {
-        pathPrefix: "/eleventy/",
-        dir: { input: ".", includes: "_includes", data: "_data", output: "_site" },
-        templateFormats: ["liquid","html","md"],  // no Nunjucks
+        // Build from THIS folder, output to _site
+        dir: { input: ".", output: "_site" },
+
+        // Only process Liquid/HTML/Markdown (no Nunjucks)
+        templateFormats: ["liquid", "html", "md"],
         markdownTemplateEngine: "liquid",
-        htmlTemplateEngine: "liquid"
+        htmlTemplateEngine: "liquid",
+
+        // Keep your existing URL base
+        pathPrefix: "/eleventy/",
     };
 };
