@@ -1,5 +1,6 @@
 ---
 title: Home
 layout: base.njk
+permalink: /
 ---
-Welcome - 007 x10,001.
+Welcome - 007 x10,002.
