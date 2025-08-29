@@ -14,49 +14,57 @@ export default function Counter({ initial = 0 }) {
         weekday: "long",
         month: "long",
         day: "numeric",
-        year: "numeric"
+        year: "numeric",
     }).format(now);
 
     return (
-        <div className="counter-root" style={{ textAlign: "center" }}>
-            {/* DATE banner at the very top; top margin matches .analog-head (1rem) */}
-            <div className="date-banner" aria-label={dateStr}>
-                <span className="date-text">{dateStr}</span>
+        <div className="counter-col">
+            {/* TOP HALF: Date + Chip */}
+            <div className="top-half">
+                <div className="date-banner" aria-label={dateStr}>
+                    <span className="date-text">{dateStr}</span>
+                </div>
+                <div className="chip-name" aria-label="Chip">Chip</div>
             </div>
 
-            {/* Stylish signature name just under the date */}
-            <div className="chip-name" aria-label="Chip">Chip</div>
+            {/* Horizontal divider exactly at the midpoint */}
+            <div className="mid-divider" role="presentation" />
 
-            {/* Divider between date/name and the counter stack */}
-            <div className="counter-hr" role="presentation" />
+            {/* BOTTOM HALF: Counter title + value + buttons */}
+            <div className="bottom-half">
+                <div className="counter-title" aria-hidden="true">COUNTER</div>
+                <div className="counter-value" aria-live="polite">{value}</div>
 
-            {/* Spaced-out title */}
-            <div className="counter-title" aria-hidden="true">COUNTER</div>
-
-            {/* Big centered number */}
-            <div className="counter-value" aria-live="polite">{value}</div>
-
-            {/* Buttons evenly spaced */}
-            <div className="counter-buttons">
-                <button className="button tactile raised" onClick={() => set(v => v + 1)}>+1</button>
-                <button className="button tactile raised" onClick={() => set(v => v + 5)}>+5</button>
-                <button className="button tactile raised secondary" onClick={() => set(initial)}>Reset</button>
+                <div className="counter-buttons">
+                    <button className="button tactile raised" onClick={() => set(v => v + 1)}>+1</button>
+                    <button className="button tactile raised" onClick={() => set(v => v + 5)}>+5</button>
+                    <button className="button tactile raised secondary" onClick={() => set(initial)}>Reset</button>
+                </div>
             </div>
 
             <style>{`
-        /* Load a playful script for your name */
         @import url('https://fonts.googleapis.com/css2?family=Pacifico&display=swap');
 
-        .counter-root{
+        /* Full-height column with two equal rows + a thin middle row for the divider */
+        .counter-col{
           width: 100%;
           max-width: var(--colWidth);
-          margin-inline: auto;
+          display: grid;
+          grid-template-rows: 1fr 2px 1fr;   /* top half | divider | bottom half */
+          gap: 0;
         }
 
-        /* Align the date with Analog heading (top margin = 1rem) */
+        /* TOP HALF ------------------------------------------ */
+        .top-half{
+          display:flex;
+          flex-direction:column;
+          align-items:center;
+          justify-content:flex-start;
+          padding-top: 1rem; /* aligns top with Analog heading */
+        }
         .date-banner{
           width: 100%;
-          margin: 1rem auto .4rem auto;
+          margin: 0 auto .5rem auto;
           padding: .45rem .9rem;
           border: 1.5px solid rgba(255,255,255,.9);
           border-radius: 12px;
@@ -73,31 +81,42 @@ export default function Counter({ initial = 0 }) {
           text-transform:uppercase;
           font-size: clamp(0.9rem, 2.2vw, 1.05rem);
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+          text-align:center;
         }
-
-        /* Signature-style "Chip" */
         .chip-name{
-          margin: .15rem auto .9rem auto;
+          margin: .15rem 0 0 0;
           font-family: 'Pacifico', cursive;
           font-size: clamp(1.4rem, 3vw, 2rem);
           line-height: 1.1;
           letter-spacing: .02em;
-          background: linear-gradient(90deg, #fff, #dbeafe);
+          background: linear-gradient(90deg, #ffffff, #dbeafe);
           -webkit-background-clip: text;
           background-clip: text;
           color: transparent;
           text-shadow: 0 2px 10px rgba(0,0,0,.25);
         }
 
-        .counter-hr{
+        /* MID DIVIDER --------------------------------------- */
+        .mid-divider{
           width: 100%;
-          border-top: 2px solid rgba(255,255,255,.35);
-          margin: .25rem auto 1rem auto; /* keep counter stack where it was */
+          height: 2px;
+          background: rgba(255,255,255,.35);
+          border-radius: 2px;
+          margin: 0; /* sits exactly at the midpoint */
         }
 
+        /* BOTTOM HALF --------------------------------------- */
+        .bottom-half{
+          display:flex;
+          flex-direction:column;
+          align-items:center;
+          justify-content:center; /* center content within the bottom half */
+          padding: 1rem 0;
+          gap: .6rem;
+        }
         .counter-title{
           width: 100%;
-          margin: 0 0 .45rem 0;
+          text-align:center;
           font-weight: 800;
           color:#fff;
           text-transform: uppercase;
@@ -105,8 +124,8 @@ export default function Counter({ initial = 0 }) {
           word-spacing: .4em;
           opacity: .95;
           font-size: .95rem;
+          margin: 0;
         }
-
         .counter-value{
           width: 100%;
           font-size: clamp(2.4rem, 6vw, 3.6rem);
@@ -121,11 +140,12 @@ export default function Counter({ initial = 0 }) {
             0 6px 18px rgba(0,0,0,.18);
           margin: 0 auto .8rem auto;
           min-width: 5.5ch;
+          text-align:center;
         }
 
+        /* Evenly-spaced buttons under the value */
         .counter-buttons{
           width: 100%;
-          margin: 0 auto;
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: .75rem;

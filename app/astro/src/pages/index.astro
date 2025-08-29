@@ -44,8 +44,9 @@ const posts = (await Astro.glob('./posts/*.md'))
             <DigitalClock client:visible />
         </article>
 
-        <!-- Two equal columns: Analog | Counter (with divider on wide screens) -->
+        <!-- Two equal columns -->
         <div class="react-grid">
+            <!-- Left: Analog -->
             <article class="chip-card analog-cell">
                 <h3 class="text-light analog-head">Analog (React)</h3>
                 <div class="analog-wrap">
@@ -53,8 +54,8 @@ const posts = (await Astro.glob('./posts/*.md'))
                 </div>
             </article>
 
+            <!-- Right: Date/Chip (top half) + Counter (bottom half) -->
             <article class="chip-card counter-cell">
-                <!-- No vertical centering: start at top so date aligns with Analog heading -->
                 <Counter client:idle initial={0} />
             </article>
         </div>
@@ -87,28 +88,52 @@ const posts = (await Astro.glob('./posts/*.md'))
 <style>
     .react-title{ text-align:center; margin:0 0 1.25rem }
 
-    /* More space under the digital clock row */
+    /* More air under the digital slab */
     .digital-block{ margin-top:.9rem; margin-bottom:1.25rem; text-align:center }
 
-    /* Two equal columns; share a common width for both sides */
+    /* Two equal columns; shared sizing and a FULL-HEIGHT vertical divider */
     .react-grid{
         --colWidth: clamp(18rem, 46vw, 520px);
-        display:grid; grid-template-columns:1fr; row-gap:1.25rem; column-gap:1rem; align-items:start;
+        --vpad: 0.5rem;               /* vertical inset for the divider inside the blue card */
+        --dividerColor: rgba(255,255,255,.35);
+
+        position: relative;           /* for the ::after divider */
+        display: grid;
+        grid-template-columns: 1fr;
+        row-gap: 1.25rem;
+        column-gap: 1rem;
+        align-items: stretch;         /* make columns equal height */
     }
     @media (min-width:900px){
-        .react-grid{ grid-template-columns:1fr 1fr; }
-        .counter-cell{ border-left:2px solid rgba(255,255,255,.35); padding-left:1rem; }
+        .react-grid{ grid-template-columns: 1fr 1fr; }
+    }
+    /* center vertical divider that spans the full content height */
+    @media (min-width:900px){
+        .react-grid::after{
+            content:"";
+            position:absolute;
+            left: 50%;
+            top: var(--vpad);
+            bottom: var(--vpad);
+            transform: translateX(-0.5px); /* crisp 1-2px line */
+            width: 2px;
+            background: var(--dividerColor);
+            border-radius: 2px;
+        }
     }
 
-    /* Left heading controls the alignment line */
-    .analog-head{ text-align:center; margin:1rem 0 1rem }
+    /* Heading establishes the alignment line under the digital clock */
+    .analog-head{ text-align:center; margin:1rem 0 1rem; }
 
-    /* Keep analog contained and centered using the shared width */
+    /* Keep analog contained and centered */
     .analog-wrap{ max-width: var(--colWidth); margin-inline:auto; }
 
-    /* Right column starts at TOP (not vertically centered) */
+    /* Right column should stretch full height to match the left */
     .counter-cell{
-        display:flex; justify-content:center; /* horizontal centering of inner width */
+        display:flex;
+        justify-content:center;
+        align-items:stretch;
+        min-height: 100%;
     }
 
     .sr-only{
