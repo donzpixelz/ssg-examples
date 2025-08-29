@@ -1,0 +1,26 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Counter from '../components/Counter.jsx';
+import Clock from '../components/Clock.jsx';
+---
+<BaseLayout title="React demo · Astro Example" description="React islands inside an Astro page.">
+    <section class="card">
+        <h1>React in Astro</h1>
+        <p>Astro renders the page as static HTML and hydrates just the islands you place. Each island controls when it becomes interactive.</p>
+    </section>
+
+    <!-- Hydrates immediately on page load -->
+    <Counter client:load initial={1} />
+
+    <!-- Hydrates when scrolled into view -->
+    <Clock client:visible />
+
+    <section class="card">
+        <h2>Hydration controls</h2>
+        <ul>
+            <li><code>client:load</code> — as soon as the page loads</li>
+            <li><code>client:visible</code> — when the component is in the viewport</li>
+            <li><code>client:idle</code> — when the browser is idle</li>
+        </ul>
+    </section>
+</BaseLayout>

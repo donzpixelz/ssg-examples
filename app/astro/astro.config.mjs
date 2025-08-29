@@ -1,5 +1,7 @@
 import { defineConfig } from 'astro/config';
 
+import react from '@astrojs/react';
+
 export default defineConfig({
   // Your Astro section is served at /astro/
   base: '/astro/',
@@ -19,4 +21,6 @@ export default defineConfig({
       wrap: true, // soft-wrap long code lines
     },
   },
+
+  integrations: [react()],
 });
