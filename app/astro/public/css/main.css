@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
 :root{
     --brand:#3466cb;
     --text:#1f2328;
@@ -195,3 +197,52 @@ code, pre, kbd, samp{
             0 6px 0 rgba(0,0,0,.22),
             inset 0 0 0 1px rgba(255,255,255,.10);
 }
+
+/* Even 50/50 clocks row; same total width as the counter card */
+.islands-grid{
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 0 0 1rem;
+}
+@media (min-width: 760px){
+    .islands-grid{ flex-direction: row; }
+    .islands-grid > .card{ flex: 1 1 0; margin: 0; } /* make each clock fill half */
+}
+
+/* Digital clock look */
+.digital{
+    font-family: 'Share Tech Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: .02em;
+}
+.digital-large{
+    font-size: clamp(1.8rem, 5vw, 2.8rem);
+}
+
+/* Make all buttons feel clickable */
+.button{ cursor: pointer; }
+
+/* Stronger “raised” buttons so they pop */
+.button.tactile.raised{
+    border-radius: 10px;
+    background: linear-gradient(180deg, #ffffff 0%, #eef2ff 100%);
+    color: var(--brand);
+    border: 1px solid rgba(0,0,0,.22);
+    box-shadow:
+            0 0 0 3px rgba(255,255,255,.70),   /* halo against blue card */
+            0 7px 0 rgba(0,0,0,.26),           /* hard drop */
+            0 18px 34px rgba(0,0,0,.30);       /* soft spread */
+    transform: translateY(0);
+    transition: transform .06s ease, box-shadow .12s ease, filter .12s ease;
+}
+.button.tactile.raised:hover{
+    filter: brightness(1.04);
+}
+.button.tactile.raised:active{
+    transform: translateY(1px);
+    box-shadow:
+            0 0 0 3px rgba(255,255,255,.60),
+            0 4px 0 rgba(0,0,0,.28),
+            0 12px 22px rgba(0,0,0,.28);
+}
+.button.tactile.raised:focus-visible{ outline: 2px solid #fff; outline-offset: 2px; }

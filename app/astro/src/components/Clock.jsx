@@ -14,9 +14,9 @@ export default function Clock({ variant = 'chip', text = 'light' }) {
     ].join(' ').trim();
 
     return (
-        <div className={classes} style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <div className={classes}>
             <h2 style={{ marginTop: 0 }}>Clock (React)</h2>
-            <p style={{ margin: 0 }}>
+            <p className="digital digital-large" style={{ margin: 0 }}>
                 {now.toLocaleTimeString()}
             </p>
         </div>

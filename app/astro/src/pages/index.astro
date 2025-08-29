@@ -4,7 +4,6 @@ import Clock from '../components/Clock.jsx';
 import AnalogClock from '../components/AnalogClock.jsx';
 import Counter from '../components/Counter.jsx';
 
-// Gather latest posts
 const posts = (await Astro.glob('./posts/*.md'))
     .sort((a, b) => new Date(b.frontmatter.date) - new Date(a.frontmatter.date))
     .slice(0, 8);
@@ -12,45 +11,27 @@ const posts = (await Astro.glob('./posts/*.md'))
 <BaseLayout title="Astro Example · Home" description="A meaningful Astro homepage: what Astro is, why you'd use it, and how this demo is set up.">
     <section class="card">
         <h1>Astro Example</h1>
-        <p><strong>Astro is a content-first static site builder</strong> that ships <em>zero JavaScript by default</em> and only hydrates interactive “islands” when you ask it to. It’s great for docs, blogs, and marketing sites where speed and SEO matter.</p>
+        <p><strong>Astro is a content-first static site builder</strong> that ships <em>zero JavaScript by default</em> and only hydrates interactive “islands” when you ask it to.</p>
     </section>
 
     <section class="card">
         <h2>What Astro is (quick)</h2>
         <ul>
-            <li><strong>Islands architecture:</strong> pages are mostly HTML; specific components hydrate only when needed.</li>
-            <li><strong>Hydration directives:</strong> <code>client:load</code>, <code>client:visible</code>, <code>client:idle</code> control when a component becomes interactive.</li>
-            <li><strong>Framework-agnostic:</strong> use React/Vue/Svelte/Solid alongside Astro/Markdown.</li>
-            <li><strong>Markdown & MDX first:</strong> content files + frontmatter power listings.</li>
-            <li><strong>Fast by default:</strong> minimal JS, build-time rendering, excellent CWV.</li>
+            <li><strong>Islands architecture:</strong> hydrate only what needs JS.</li>
+            <li><strong>Hydration directives:</strong> <code>client:load</code>, <code>client:visible</code>, <code>client:idle</code>.</li>
+            <li><strong>Framework-agnostic:</strong> React/Vue/Svelte/Solid + Markdown.</li>
+            <li><strong>Fast by default:</strong> minimal JS; great Core Web Vitals.</li>
         </ul>
     </section>
 
-    <section class="card">
-        <h2>Islands in practice</h2>
-        <p>Digital + analog clocks side by side (hydrate on visibility), then a tactile counter below (hydrates when idle).</p>
+    <!-- Clocks row (fills the same width as the counter; each clock = 50%) -->
+    <div class="islands-grid">
+        <Clock client:visible variant="chip" text="light" />
+        <AnalogClock client:visible variant="chip" text="light" />
+    </div>
 
-        <!-- Clocks row -->
-        <div class="islands-row">
-            <Clock client:visible variant="chip" text="light" />
-            <AnalogClock client:visible variant="chip" text="light" />
-        </div>
-
-        <!-- Counter below clocks -->
-        <div style="margin-top:.75rem;">
-            <Counter client:idle initial={1} variant="chip" text="light" />
-        </div>
-    </section>
-
-    <section class="card">
-        <h2>How this demo is set up</h2>
-        <ul>
-            <li>Served under <code>/astro/</code> (<code>base: "/astro/"</code> in config).</li>
-            <li>Single-column layout via <code>BaseLayout.astro</code>; styles in <code>public/css/main.css</code> using <code>#3466cb</code>.</li>
-            <li>Blog posts live in <code>src/pages/posts/</code> with <code>BlogPost.astro</code>.</li>
-            <li>Build to <code>dist/</code> and deploy to Nginx at <code>/usr/share/nginx/html/astro/</code>.</li>
-        </ul>
-    </section>
+    <!-- Counter spans full content width -->
+    <Counter client:idle initial={1} variant="chip" text="light" />
 
     <section class="card">
         <h2>Latest posts</h2>
