@@ -1,88 +1,71 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 
-// Gather latest posts
+// Gather latest posts for the list at the bottom
 const posts = (await Astro.glob('./posts/*.md'))
     .sort((a, b) => new Date(b.frontmatter.date) - new Date(a.frontmatter.date))
     .slice(0, 8);
 ---
-<BaseLayout title="Astro Example · Home" description="Starter Astro layout with helpful sections, latest posts, and clear deploy notes.">
-  <section class="card">
-    <h1>Astro Example</h1>
-    <p>This section lives under <code>/astro/</code>. Pages are in <code>src/pages/</code>, layouts in <code>src/layouts/</code>, and styles in <code>public/css/main.css</code>. The header/nav come from your <code>BaseLayout.astro</code>.</p>
-    <p>
-      <a class="button" href={import.meta.env.BASE_URL + 'posts/'}>Open the blog</a>
-      <a class="button secondary" href={import.meta.env.BASE_URL + 'about/'}>About</a>
-      <a class="button secondary" href={import.meta.env.BASE_URL + 'contact/'}>Contact</a>
-    </p>
-  </section>
+<BaseLayout title="Astro Example · Home" description="A meaningful Astro homepage: what Astro is, why you'd use it, and how this demo is set up.">
+    <section class="card">
+        <h1>Astro Example</h1>
+        <p><strong>Astro is a content-first static site builder</strong> that ships <em>zero JavaScript by default</em> and only hydrates interactive “islands” when you ask it to. It’s great for docs, blogs, and marketing sites where speed and SEO matter.</p>
+    </section>
 
-  <section class="card">
-    <h2>Get started</h2>
-    <ol>
-      <li>Edit this page: <code>src/pages/index.astro</code></li>
-      <li>Add a post: <code>src/pages/posts/my-post.md</code> (set a <code>date:</code> and <code>layout: ../../layouts/BlogPost.astro</code>)</li>
-      <li>Build locally: <code>npx astro build</code></li>
-      <li>Deploy (see commands below)</li>
-    </ol>
-  </section>
+    <section class="card">
+        <h2>What Astro is (quick)</h2>
+        <ul>
+            <li><strong>Islands architecture:</strong> pages are mostly HTML; specific components hydrate on the client only when needed.</li>
+            <li><strong>Partial hydration directives:</strong> <code>client:load</code>, <code>client:visible</code>, <code>client:idle</code>, etc., control when a component becomes interactive.</li>
+            <li><strong>Framework-agnostic:</strong> drop in React/Vue/Svelte/Solid components alongside plain Astro/Markdown.</li>
+            <li><strong>Markdown & MDX first:</strong> write content as files; frontmatter drives metadata and lists.</li>
+            <li><strong>Fast by default:</strong> minimal JS, built-time rendering, excellent Core Web Vitals.</li>
+        </ul>
+    </section>
 
-  <section class="card">
-    <h2>Project structure (quick tour)</h2>
-    <pre><code>app/astro/
-├── astro.config.mjs        # base: '/astro/'
-├── public/
-│   └── css/
-│       └── main.css        # styles (brand blue #3466cb)
-└── src/
-    ├── layouts/
-    │   ├── BaseLayout.astro
-    │   └── BlogPost.astro
-    └── pages/
-        ├── index.astro
-        ├── about.astro
-        ├── contact.astro
-        └── posts/
-            ├── index.astro
-            ├── hello-world.md
-            └── second-post.md
+    <section class="card">
+        <h2>How this demo is set up</h2>
+        <ul>
+            <li>Served under <code>/astro/</code> (see <code>astro.config.mjs</code> with <code>base: "/astro/"</code>).</li>
+            <li>Single-column layout via <code>BaseLayout.astro</code> and a tiny CSS file at <code>public/css/main.css</code> using your blue <code>#3466cb</code>.</li>
+            <li>Blog posts live in <code>src/pages/posts/</code> as Markdown with frontmatter and a <code>BlogPost.astro</code> layout.</li>
+            <li>Static output built to <code>dist/</code> and rsynced to your Nginx path <code>/usr/share/nginx/html/astro/</code>.</li>
+        </ul>
+    </section>
+
+    <section class="card">
+        <h2>Islands in practice (tiny demo snippet)</h2>
+        <p>You can sprinkle interactivity anywhere without turning the whole page into an SPA:</p>
+        <pre><code>---
+// Example: a React counter island
+// import Counter from '../components/Counter.jsx';
+---
+// &lt;Counter client:load /&gt;  <!-- Hydrates only this piece -->
 </code></pre>
-  </section>
+        <p>Commented out so this page stays static; drop a real component in later if you want.</p>
+    </section>
 
-  <section class="card">
-    <h2>Latest posts</h2>
-    {posts.length === 0 ? (
-        <p>No posts yet. Create one in <code>src/pages/posts/</code>, then rebuild.</p>
-    ) : (
-        posts.map(p => (
-            <div class="list-item">
-              <a href={p.url}><strong>{p.frontmatter.title}</strong></a>
-              {p.frontmatter.date && (
-                  <small> — {new Date(p.frontmatter.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</small>
-              )}
-            </div>
-        ))
-    )}
-    <p style="margin-top:.6rem">
-      <a class="button" href={import.meta.env.BASE_URL + 'posts/'}>View all posts</a>
-    </p>
-  </section>
+    <section class="card">
+        <h2>Latest posts</h2>
+        {posts.length === 0 ? (
+                <p>No posts yet. Add one in <code>src/pages/posts/</code>, then rebuild.</p>
+        ) : (
+            posts.map(p => (
+                    <div class="list-item">
+                        <a href={p.url}><strong>{p.frontmatter.title}</strong></a>
+                        {p.frontmatter.date && (
+                                <small> — {new Date(p.frontmatter.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</small>
+                        )}
+                    </div>
+            ))
+        )}
+    </section>
 
-  <section class="card">
-    <h2>Deploy to EC2 (quick)</h2>
-    <p>Build locally, then sync the <code>dist/</code> output to your Nginx <code>/astro/</code> path.</p>
-    <pre><code>npx astro build
+    <section class="card">
+        <h2>Build & deploy</h2>
+        <pre><code>npx astro build
 rsync -avz --delete -e "ssh -i /Users/donwilson/.ssh/ssg-examples-key.pem" \
   dist/ ec2-user@18.220.33.0:/usr/share/nginx/html/astro/</code></pre>
-    <p>Adjust the SSH key, host, or target path if yours differ.</p>
-  </section>
-
-  <section class="card">
-    <h2>Other examples on this server</h2>
-    <ul>
-      <li><a href="/hugo/">Hugo</a></li>
-      <li><a href="/jekyll/">Jekyll</a></li>
-      <li><a href="/eleventy/">Eleventy</a></li>
-    </ul>
-  </section>
+        <p>Adjust key/host/path if yours differ.</p>
+    </section>
 </BaseLayout>
