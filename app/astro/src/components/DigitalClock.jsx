@@ -14,11 +14,31 @@ export default function DigitalClock() {
     const ss = String(now.getSeconds()).padStart(2, "0");
 
     return (
-        <div className="digital-slab">
-            <div className="digital digital-large">
-                {h}:{mm}:{ss}
-                <div style={{ fontSize: "0.9rem", marginTop: ".25rem", color: "#ffb3b3" }}>{ampm}</div>
+        <div className="digital-wide">
+            <div className="digital-slab">
+                <div className="digital digital-large">
+                    {h}:{mm}:{ss}
+                    {/* inline AM/PM same color */}
+                    <span className="ampm"> {ampm}</span>
+                </div>
             </div>
+
+            <style>{`
+        /* override: make slab full-width instead of inline-block */
+        .digital-wide .digital-slab{
+          display:block;
+          width:100%;
+          padding:.5rem .8rem;
+        }
+        /* keep the LED look, but AM/PM inline + same color */
+        .digital-wide .ampm{
+          font-size: .9rem;
+          letter-spacing:.06em;
+          vertical-align: baseline;
+          color: currentColor; /* same as digits (#ff4040 via your CSS) */
+          opacity:.9;
+        }
+      `}</style>
         </div>
     );
 }

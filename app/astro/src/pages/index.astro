@@ -24,27 +24,28 @@ const posts = (await Astro.glob('./posts/*.md'))
         </ul>
     </section>
 
-    <!-- React Examples (stacked) -->
+    <!-- React Examples -->
     <section class="card card--chip">
         <h2 class="text-light">React Examples</h2>
 
-        <!-- Digital on top -->
+        <!-- Digital: full width -->
         <article class="chip-card">
             <h3 class="text-light">Digital (React)</h3>
-            <DigitalClock client:visible variant="chip" text="light" />
+            <DigitalClock client:visible />
         </article>
 
-        <!-- Analog under it -->
-        <article class="chip-card">
-            <h3 class="text-light">Analog (React)</h3>
-            <AnalogClock client:visible variant="chip" text="light" />
-        </article>
-    </section>
+        <!-- Row: Analog + Counter -->
+        <div class="react-grid">
+            <article class="chip-card">
+                <h3 class="text-light">Analog (React)</h3>
+                <AnalogClock client:visible />
+            </article>
 
-    <!-- Counter in its own section with clickable buttons -->
-    <section class="card card--chip">
-        <h2 class="text-light">Counter</h2>
-        <Counter client:idle initial={0} variant="chip" text="light" />
+            <article class="chip-card">
+                <h3 class="text-light">Counter</h3>
+                <Counter client:idle initial={0} />
+            </article>
+        </div>
     </section>
 
     <section class="card">
@@ -65,6 +66,16 @@ const posts = (await Astro.glob('./posts/*.md'))
 </BaseLayout>
 
 <style>
-    /* keep chip section items stacked with comfortable spacing */
-    .chip-card{ margin: .75rem 0 1rem; }
+    /* space between stacked cards */
+    .chip-card{ margin: .75rem 0 1rem }
+
+    /* two-column row for Analog + Counter (stacks on small) */
+    .react-grid{
+        display:grid;
+        grid-template-columns:1fr;
+        gap:1rem;
+    }
+    @media (min-width:900px){
+        .react-grid{ grid-template-columns:2fr 1fr; } /* Analog bigger than Counter */
+    }
 </style>
