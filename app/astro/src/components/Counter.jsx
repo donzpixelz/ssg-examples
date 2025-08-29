@@ -1,10 +1,32 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function Counter({ initial = 0 }) {
     const [value, set] = useState(initial);
+    const [now, setNow] = useState(new Date());
+
+    // Refresh date periodically so it rolls over at midnight
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 60 * 1000); // every minute
+        return () => clearInterval(id);
+    }, []);
+
+    const dateStr = new Intl.DateTimeFormat(undefined, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric"
+    }).format(now);
 
     return (
         <div className="counter-root" style={{ textAlign: "center" }}>
+            {/* Date banner */}
+            <div className="date-banner" aria-label={dateStr}>
+                <span className="date-text">{dateStr}</span>
+            </div>
+
+            {/* Stylized title spread across width */}
+            <div className="counter-title" aria-hidden="true">COUNTER</div>
+
             {/* Big centered number with a subtle frame; no label */}
             <div className="counter-value" aria-live="polite">{value}</div>
 
@@ -16,9 +38,44 @@ export default function Counter({ initial = 0 }) {
             </div>
 
             <style>{`
-        /* Shared width for value + buttons so they align cleanly */
+        /* Shared width for banner, title, value, and buttons */
         .counter-root{
-          --counterWidth: clamp(14rem, 40vw, 22rem);
+          --counterWidth: clamp(16rem, 42vw, 24rem);
+        }
+
+        .date-banner{
+          width: var(--counterWidth);
+          margin: 0 auto .9rem auto;
+          padding: .4rem .9rem;
+          border: 1.5px solid rgba(255,255,255,.9);
+          border-radius: 12px;
+          background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.06));
+          box-shadow:
+            inset 0 0 0 1px rgba(0,0,0,.18),
+            0 8px 18px rgba(0,0,0,.18);
+        }
+        .date-text{
+          display:block;
+          font-weight:700;
+          color:#fff;
+          letter-spacing:.05em;
+          text-transform:uppercase;
+          font-size: clamp(0.9rem, 2.2vw, 1.05rem);
+          white-space:nowrap;
+          overflow:hidden;
+          text-overflow:ellipsis;
+        }
+
+        .counter-title{
+          width: var(--counterWidth);
+          margin: 0 auto .4rem auto;
+          font-weight: 800;
+          color:#fff;
+          text-transform: uppercase;
+          letter-spacing: .35em;    /* spreads letters */
+          word-spacing: .4em;
+          opacity: .95;
+          font-size: .95rem;
         }
 
         .counter-value{
@@ -27,17 +84,16 @@ export default function Counter({ initial = 0 }) {
           line-height: 1.1;
           font-weight: 800;
           color: #fff;
-          padding: .45rem 1.2rem;
+          padding: .55rem 1.2rem;
           border: 2px solid rgba(255,255,255,.95);
           border-radius: 12px;
           box-shadow:
             0 0 0 3px rgba(255,255,255,.18) inset,
             0 6px 18px rgba(0,0,0,.18);
-          margin: 0 auto .75rem auto;
-          min-width: 5.5ch; /* keeps a nice pill for 0..9999 */
+          margin: 0 auto .8rem auto;
+          min-width: 5.5ch;
         }
 
-        /* Grid with three equal columns; centers each button in its cell */
         .counter-buttons{
           width: var(--counterWidth);
           margin: 0 auto;
@@ -47,11 +103,9 @@ export default function Counter({ initial = 0 }) {
           align-items: center;
           justify-items: center;
         }
-
-        /* Let buttons keep their tactile look but fit nicely in grid */
         .counter-buttons .button{
           width: 100%;
-          max-width: 7rem;   /* avoids giant buttons on very wide screens */
+          max-width: 7rem;
         }
       `}</style>
         </div>
