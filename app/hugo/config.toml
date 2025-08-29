@@ -20,3 +20,19 @@ weight = 2
 [markup.goldmark]
 [markup.goldmark.renderer]
 unsafe = true
+
+
+# --- Blog basics ---
+paginate = 10
+summaryLength = 140
+
+[taxonomies]
+tag = "tags"
+category = "categories"
+
+[permalinks]
+posts = "/posts/:slug/"
+
+[outputs]
+home = ["HTML","RSS"]
+section = ["HTML","RSS"]

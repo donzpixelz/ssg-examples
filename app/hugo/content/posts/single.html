@@ -1,0 +1,35 @@
+{{ define "main" }}
+<article class="post">
+    <h1>{{ .Title }}</h1>
+
+    <p class="post-date">
+        <time datetime="{{ .Date }}">{{ .Date.Format "Jan 2, 2006" }}</time>
+        · {{ .ReadingTime }} min read
+        {{ with .Params.tags }}
+        ·
+        {{ range $i, $t := . -}}
+        {{- if $i }}, {{ end -}}
+        <a href="{{ (print "/tags/" ($t | urlize) "/") | relLangURL }}">{{ $t }}</a>
+        {{- end }}
+        {{ end }}
+    </p>
+
+    {{ with .TableOfContents }}
+    <details style="margin:1rem 0">
+        <summary><strong>Table of contents</strong></summary>
+        {{ . }}
+    </details>
+    {{ end }}
+
+    {{ .Content }}
+
+    <nav class="post-nav" style="display:flex; justify-content:space-between; gap:1rem; margin-top:2rem;">
+        <div class="prev">
+            {{ with .PrevInSection }}← <a href="{{ .RelPermalink }}">{{ .Title }}</a>{{ end }}
+        </div>
+        <div class="next" style="margin-left:auto; text-align:right;">
+            {{ with .NextInSection }}<a href="{{ .RelPermalink }}">{{ .Title }}</a> →{{ end }}
+        </div>
+    </nav>
+</article>
+{{ end }}
