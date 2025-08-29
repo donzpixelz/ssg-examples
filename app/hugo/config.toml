@@ -1,5 +1,5 @@
 baseURL = "/hugo/"
-title = "Hugo Site"
+title = "Hugo Example"
 languageCode = "en-us"
 
 [params]

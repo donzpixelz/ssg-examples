@@ -1,13 +1,14 @@
 <header class="site-header" role="banner">
     <h1 class="site-title">
-        <a href="{{ "/" | relURL }}">{{ .Site.Title }}</a>
+        <!-- Title shown as plain text (not a link) -->
+        <span class="site-title-text">{{ .Site.Title }}</span>
     </h1>
 
     {{ with .Site.Menus.main }}
     <nav class="site-nav" aria-label="Main">
         <ul>
             {{ range . }}
-            <li><a href="{{ .URL | relURL }}">{{ .Name }}</a></li>
+            <li><a href="{{ .URL | relLangURL }}">{{ .Name }}</a></li>
             {{ end }}
         </ul>
     </nav>
