@@ -1,14 +1,14 @@
 ---
+import SeoHead from '../components/SeoHead.astro';
 const title = Astro.props.title ?? 'Astro Example';
-const description = Astro.props.description ?? 'A minimal Astro starter layout.';
+const description = Astro.props.description ?? 'Static, fast, content-first.';
 ---
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-    <meta name="description" content={description} />
+    <SeoHead {title} {description} />
     <link rel="stylesheet" href={import.meta.env.BASE_URL + 'css/main.css'} />
 </head>
 <body>
@@ -19,6 +19,7 @@ const description = Astro.props.description ?? 'A minimal Astro starter layout.'
         <a href={import.meta.env.BASE_URL + 'posts/'}>Blog</a>
         <a href={import.meta.env.BASE_URL + 'about/'}>About</a>
         <a href={import.meta.env.BASE_URL + 'contact/'}>Contact</a>
+        <a href={import.meta.env.BASE_URL + 'tags/'}>Tags</a>
     </nav>
 </header>
 
@@ -27,7 +28,7 @@ const description = Astro.props.description ?? 'A minimal Astro starter layout.'
 </main>
 
 <footer>
-    <p>© {new Date().getFullYear()} Astro Example</p>
+    <p>© {new Date().getFullYear()} Astro Example · <a href={import.meta.env.BASE_URL + 'rss.xml'}>RSS</a> · <a href={import.meta.env.BASE_URL + 'sitemap.xml'}>Sitemap</a></p>
 </footer>
 </body>
 </html>

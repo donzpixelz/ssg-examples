@@ -1,0 +1,32 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+export async function getStaticPaths() {
+    const posts = await Astro.glob('../posts/*.md');
+    const tagSet = new Set<string>();
+    posts.forEach(p => (p.frontmatter.tags ?? []).forEach(t => tagSet.add(t)));
+    return Array.from(tagSet).map(tag => ({
+        params: { tag },
+        props: {
+            tag,
+            posts: posts.filter(p => (p.frontmatter.tags ?? []).includes(tag)),
+        },
+    }));
+}
+
+const { tag, posts } = Astro.props as { tag: string; posts: any[] };
+---
+<BaseLayout title={`Tag: ${tag} · Astro Example`}>
+    <h1>Tag: {tag}</h1>
+    {posts.length === 0
+        ? <p>No posts for this tag.</p>
+        : posts.map(p => (
+                    <div class="list-item">
+                        <a href={p.url}><strong>{p.frontmatter.title}</strong></a>
+                        {p.frontmatter.date && (
+                                <small> — {new Date(p.frontmatter.date).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' })}</small>
+                        )}
+                    </div>
+        ))
+    }
+</BaseLayout>

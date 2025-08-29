@@ -1,0 +1,27 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+const posts = await Astro.glob('../posts/*.md');
+
+const counts = new Map();
+for (const p of posts) {
+    (p.frontmatter.tags ?? []).forEach(t => counts.set(t, (counts.get(t) ?? 0) + 1));
+}
+const tags = Array.from(counts.entries())
+    .sort((a,b) => a[0].localeCompare(b[0]));
+---
+<BaseLayout title="Tags · Astro Example">
+    <h1>Tags</h1>
+    {tags.length === 0
+        ? <p>No tags yet.</p>
+        : (
+                    <ul class="tag-list">
+                        {tags.map(([t,c]) => (
+                                <li>
+                                    <a href={import.meta.env.BASE_URL + `tags/${encodeURIComponent(t)}/`}>{t}</a>
+                                    <small> ({c})</small>
+                                </li>
+                        ))}
+                    </ul>
+        )
+    }
+</BaseLayout>

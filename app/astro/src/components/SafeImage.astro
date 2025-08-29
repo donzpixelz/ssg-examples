@@ -1,0 +1,26 @@
+---
+/**
+    * Usage:
+    *   import pic from '../assets/pic.jpg';         // local
+    *   <SafeImage src={pic} alt="..." />
+    *
+    *   // OR external:
+    *   <SafeImage src="https://example.com/p.jpg" alt="..." aspectRatio="16/9" />
+    *
+    * Props:
+    * - src: imported asset metadata OR external URL string
+    * - alt: required text
+    * - width/height: optional numbers (if known)
+    * - aspectRatio: optional "w/h" string (e.g., "4/3") to reserve space if width/height unknown
+    */
+const { src, alt, width, height, aspectRatio } = Astro.props;
+const isMeta = typeof src === 'object' && src?.src;
+const style = !width && !height && aspectRatio ? `aspect-ratio:${aspectRatio}` : undefined;
+---
+{isMeta ? (
+    // Local asset: we know intrinsic width/height
+  <img src={src.src} alt={alt} width={width ?? src.width} height={height ?? src.height} loading="lazy" decoding="async" />
+    ) : (
+    // External image: fall back to aspect-ratio to prevent layout shift
+  <img src={src} alt={alt} width={width} height={height} loading="lazy" decoding="async" style={style} />
+    )}
