@@ -19,7 +19,7 @@ export default function Counter({ initial = 0 }) {
 
     return (
         <div className="counter-root" style={{ textAlign: "center" }}>
-            {/* DATE banner aligned horizontally with the Analog heading */}
+            {/* Date banner (nudged up to align with Analog heading) */}
             <div className="date-banner" aria-label={dateStr}>
                 <span className="date-text">{dateStr}</span>
             </div>
@@ -40,15 +40,17 @@ export default function Counter({ initial = 0 }) {
             <style>{`
         /* Inherit shared width from page: var(--colWidth) */
         .counter-root{
+          --dateTopAdjust: -2px; /* nudge UP; tweak if you want finer alignment */
           width: 100%;
           max-width: var(--colWidth);
           margin-inline: auto;
         }
 
-        /* Align the top of the date banner with the Analog heading line */
+        /* Move the date up and give extra space below (counter stays put) */
         .date-banner{
           width: 100%;
-          margin: .6rem auto 0.9rem auto; /* .6rem matches analog h3 top margin */
+          margin: .25rem auto 1.6rem auto; /* smaller top, larger bottom */
+          transform: translateY(var(--dateTopAdjust));
           padding: .4rem .9rem;
           border: 1.5px solid rgba(255,255,255,.9);
           border-radius: 12px;
@@ -69,7 +71,7 @@ export default function Counter({ initial = 0 }) {
 
         .counter-title{
           width: 100%;
-          margin: 0.35rem auto 0.4rem auto; /* sits just under the date */
+          margin: 0 .0 .45rem .0;
           font-weight: 800;
           color:#fff;
           text-transform: uppercase;
