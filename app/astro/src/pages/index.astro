@@ -61,11 +61,4 @@ const posts = (await Astro.glob('./posts/*.md'))
         )}
     </section>
 
-    <section class="card">
-        <h2>Build & deploy</h2>
-        <pre><code>npx astro build
-rsync -avz --delete -e "ssh -i /Users/donwilson/.ssh/ssg-examples-key.pem" \
-  dist/ ec2-user@18.220.33.0:/usr/share/nginx/html/astro/</code></pre>
-        <p>Adjust key/host/path if yours differ.</p>
-    </section>
 </BaseLayout>
