@@ -19,15 +19,15 @@ export default function Counter({ initial = 0 }) {
 
     return (
         <div className="counter-root" style={{ textAlign: "center" }}>
-            {/* DATE banner at very top */}
+            {/* DATE banner at the very top; top margin matches .analog-head (1rem) */}
             <div className="date-banner" aria-label={dateStr}>
                 <span className="date-text">{dateStr}</span>
             </div>
 
-            {/* Fun name below the date */}
-            <div className="chip-name">Chip</div>
+            {/* Stylish signature name just under the date */}
+            <div className="chip-name" aria-label="Chip">Chip</div>
 
-            {/* Divider between date/name and counter */}
+            {/* Divider between date/name and the counter stack */}
             <div className="counter-hr" role="presentation" />
 
             {/* Spaced-out title */}
@@ -44,16 +44,20 @@ export default function Counter({ initial = 0 }) {
             </div>
 
             <style>{`
+        /* Load a playful script for your name */
+        @import url('https://fonts.googleapis.com/css2?family=Pacifico&display=swap');
+
         .counter-root{
           width: 100%;
           max-width: var(--colWidth);
           margin-inline: auto;
         }
 
+        /* Align the date with Analog heading (top margin = 1rem) */
         .date-banner{
           width: 100%;
-          margin: 1rem auto 0.5rem auto;
-          padding: .4rem .9rem;
+          margin: 1rem auto .4rem auto;
+          padding: .45rem .9rem;
           border: 1.5px solid rgba(255,255,255,.9);
           border-radius: 12px;
           background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.06));
@@ -68,21 +72,27 @@ export default function Counter({ initial = 0 }) {
           letter-spacing:.05em;
           text-transform:uppercase;
           font-size: clamp(0.9rem, 2.2vw, 1.05rem);
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
         }
 
+        /* Signature-style "Chip" */
         .chip-name{
-          margin: 0 auto 0.9rem auto;
-          font-size: 1rem;
-          font-weight: 700;
-          color: #fff;
-          opacity: 0.85;
-          letter-spacing: .08em;
+          margin: .15rem auto .9rem auto;
+          font-family: 'Pacifico', cursive;
+          font-size: clamp(1.4rem, 3vw, 2rem);
+          line-height: 1.1;
+          letter-spacing: .02em;
+          background: linear-gradient(90deg, #fff, #dbeafe);
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          text-shadow: 0 2px 10px rgba(0,0,0,.25);
         }
 
         .counter-hr{
           width: 100%;
           border-top: 2px solid rgba(255,255,255,.35);
-          margin: .75rem auto 1rem auto;
+          margin: .25rem auto 1rem auto; /* keep counter stack where it was */
         }
 
         .counter-title{
@@ -93,12 +103,14 @@ export default function Counter({ initial = 0 }) {
           text-transform: uppercase;
           letter-spacing: .35em;
           word-spacing: .4em;
+          opacity: .95;
           font-size: .95rem;
         }
 
         .counter-value{
           width: 100%;
           font-size: clamp(2.4rem, 6vw, 3.6rem);
+          line-height: 1.1;
           font-weight: 800;
           color: #fff;
           padding: .55rem 1.2rem;
@@ -113,6 +125,7 @@ export default function Counter({ initial = 0 }) {
 
         .counter-buttons{
           width: 100%;
+          margin: 0 auto;
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: .75rem;
