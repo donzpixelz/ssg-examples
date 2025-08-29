@@ -212,3 +212,8 @@ code, pre, kbd, samp{
 @media (prefers-reduced-motion: reduce){
     *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; scroll-behavior:auto !important }
 }
+
+
+/* React Examples: force stacked layout regardless of viewport */
+.card.card--chip .chip-card + .chip-card{ margin-top: 1rem; }
+

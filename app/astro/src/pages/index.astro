@@ -8,67 +8,63 @@ const posts = (await Astro.glob('./posts/*.md'))
     .sort((a, b) => new Date(b.frontmatter.date) - new Date(a.frontmatter.date))
     .slice(0, 8);
 ---
-<BaseLayout
-        title="Astro Example · Home"
-        description="A meaningful Astro homepage: what Astro is, why you'd use it, and how this demo is set up."
->
+<BaseLayout title="Astro Example · Home" description="A meaningful Astro homepage: what Astro is, why you'd use it, and how this demo is set up.">
     <section class="card">
         <h1>Astro Example</h1>
-        <p>
-            <strong>Astro is a content-first static site builder</strong> that ships
-            <em> zero JavaScript by default</em> and only hydrates interactive
-            “islands” when you ask it to.
-        </p>
+        <p><strong>Astro is a content-first static site builder</strong> that ships <em>zero JavaScript by default</em> and only hydrates interactive “islands” when you ask it to.</p>
     </section>
 
     <section class="card">
         <h2>What Astro is (quick)</h2>
         <ul>
             <li><strong>Islands architecture:</strong> hydrate only what needs JS.</li>
-            <li>
-                <strong>Hydration directives:</strong> <code>client:load</code>,
-                <code>client:visible</code>, <code>client:idle</code>.
-            </li>
-            <li>
-                <strong>Framework-agnostic:</strong> React/Vue/Svelte/Solid + Markdown.
-            </li>
+            <li><strong>Hydration directives:</strong> <code>client:load</code>, <code>client:visible</code>, <code>client:idle</code>.</li>
+            <li><strong>Framework-agnostic:</strong> React/Vue/Svelte/Solid + Markdown.</li>
             <li><strong>Fast by default:</strong> minimal JS; great Core Web Vitals.</li>
         </ul>
     </section>
 
-    <!-- React Examples -->
-    <section class="card">
-        <h2>React Examples</h2>
-        <div class="islands-grid">
+    <!-- React Examples (stacked) -->
+    <section class="card card--chip">
+        <h2 class="text-light">React Examples</h2>
+
+        <!-- Digital on top -->
+        <article class="chip-card">
+            <h3 class="text-light">Digital (React)</h3>
             <DigitalClock client:visible variant="chip" text="light" />
+        </article>
+
+        <!-- Analog under it -->
+        <article class="chip-card">
+            <h3 class="text-light">Analog (React)</h3>
             <AnalogClock client:visible variant="chip" text="light" />
-        </div>
-        <Counter client:idle initial={1} variant="chip" text="light" />
+        </article>
+    </section>
+
+    <!-- Counter in its own section with clickable buttons -->
+    <section class="card card--chip">
+        <h2 class="text-light">Counter</h2>
+        <Counter client:idle initial={0} variant="chip" text="light" />
     </section>
 
     <section class="card">
         <h2>Latest posts</h2>
         {posts.length === 0 ? (
-                <p>
-                    No posts yet. Add one in <code>src/pages/posts/</code>, then rebuild.
-                </p>
+                <p>No posts yet. Add one in <code>src/pages/posts/</code>, then rebuild.</p>
         ) : (
-            posts.map((p) => (
+            posts.map(p => (
                     <div class="list-item">
                         <a href={p.url}><strong>{p.frontmatter.title}</strong></a>
                         {p.frontmatter.date && (
-                                <small>
-                                    {' '}
-                                    —{' '}
-                                    {new Date(p.frontmatter.date).toLocaleDateString(undefined, {
-                                        month: 'short',
-                                        day: 'numeric',
-                                        year: 'numeric',
-                                    })}
-                                </small>
+                                <small> — {new Date(p.frontmatter.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</small>
                         )}
                     </div>
             ))
         )}
     </section>
 </BaseLayout>
+
+<style>
+    /* keep chip section items stacked with comfortable spacing */
+    .chip-card{ margin: .75rem 0 1rem; }
+</style>
