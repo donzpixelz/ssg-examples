@@ -18,21 +18,25 @@ export default function Counter({ initial = 0 }) {
 
     return (
         <div className="counter-col">
-            {/* TOP HALF: Date + Chip (uses rhythm-based spacing) */}
+            {/* TOP HALF: Date + Chip */}
             <div className="top-half">
+                {/* DATE banner sits right at the top line under the digital */}
                 <div className="date-banner" aria-label={dateStr}>
                     <span className="date-text">{dateStr}</span>
                 </div>
+
+                {/* Big, fancy name (no clipping) */}
                 <div className="chip-name" aria-label="Chip">Chip</div>
             </div>
 
-            {/* Mid divider at exact half */}
+            {/* Divider at the exact middle */}
             <div className="mid-divider" role="presentation" />
 
             {/* BOTTOM HALF: Counter */}
             <div className="bottom-half">
                 <div className="counter-title" aria-hidden="true">COUNTER</div>
                 <div className="counter-value" aria-live="polite">{value}</div>
+
                 <div className="counter-buttons">
                     <button className="button tactile raised" onClick={() => set(v => v + 1)}>+1</button>
                     <button className="button tactile raised" onClick={() => set(v => v + 5)}>+5</button>
@@ -43,27 +47,30 @@ export default function Counter({ initial = 0 }) {
             <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Pacifico&display=swap');
 
-        /* Proportional spacing scale (matches page) */
+        /* Matches the page scale */
         .counter-col{
           --rhythm: 12px;
           width: 100%;
           max-width: var(--colWidth);
           display: grid;
-          grid-template-rows: 1fr 2px 1fr;   /* equal halves + divider */
+          grid-template-rows: 1fr 2px 1fr; /* equal halves + divider */
           gap: 0;
         }
 
-        /* ---------- TOP HALF (Date + Chip) ---------- */
+        /* TOP HALF ---------------------------------------------------- */
         .top-half{
           display:flex;
           flex-direction:column;
           align-items:center;
           justify-content:flex-start;
-          padding-top: var(--rhythm);      /* aligns with Analog heading top margin */
-          gap: calc(var(--rhythm) * 0.75);
+          /* no extra padding so the date rides high at the top */
+          padding-top: 0;
+          gap: calc(var(--rhythm) * 0.9);
         }
         .date-banner{
           width: 100%;
+          /* pull the date up to align with the analog heading line */
+          margin-top: var(--rhythm);  /* analog-head uses the same top margin */
           padding: calc(var(--rhythm) * 0.45) calc(var(--rhythm) * 0.75);
           border: 1.5px solid rgba(255,255,255,.9);
           border-radius: 12px;
@@ -82,20 +89,41 @@ export default function Counter({ initial = 0 }) {
           text-align:center;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
         }
+
+        /* Fancy, large, unclipped signature */
         .chip-name{
+          position: relative;
           font-family: 'Pacifico', cursive;
-          font-size: clamp(1.6rem, 3.3vw, 2.2rem);
-          line-height: 1.1;
-          letter-spacing: .02em;
+          font-size: clamp(2.2rem, 5vw, 3.2rem); /* bigger */
+          line-height: 1.25;        /* prevent descender cut-off */
+          padding-bottom: 4px;       /* extra room for the 'p' tail */
+          margin-top: calc(var(--rhythm) * 0.5);
+          margin-bottom: calc(var(--rhythm) * 0.5);
+          overflow: visible;         /* absolutely no clipping */
+          letter-spacing: .01em;
           background: linear-gradient(90deg, #ffffff, #dbeafe);
           -webkit-background-clip: text;
           background-clip: text;
           color: transparent;
-          text-shadow: 0 2px 10px rgba(0,0,0,.25);
-          margin: 0;  /* precise spacing driven by grid gaps */
+          text-shadow:
+            0 2px 10px rgba(0,0,0,.25),
+            0 0 1px rgba(255,255,255,.35);
+        }
+        /* subtle underline flourish */
+        .chip-name::after{
+          content:"";
+          position:absolute;
+          left: 50%;
+          transform: translateX(-50%);
+          bottom: -6px;
+          width: 52%;
+          height: 3px;
+          border-radius: 999px;
+          background: linear-gradient(90deg, rgba(255,255,255,.0), rgba(255,255,255,.6), rgba(255,255,255,.0));
+          box-shadow: 0 6px 18px rgba(0,0,0,.14);
         }
 
-        /* ---------- MID DIVIDER ---------- */
+        /* MID DIVIDER ------------------------------------------------- */
         .mid-divider{
           width: 100%;
           height: 2px;
@@ -103,7 +131,7 @@ export default function Counter({ initial = 0 }) {
           border-radius: 2px;
         }
 
-        /* ---------- BOTTOM HALF (Counter) ---------- */
+        /* BOTTOM HALF ------------------------------------------------- */
         .bottom-half{
           display:flex;
           flex-direction:column;
@@ -126,7 +154,7 @@ export default function Counter({ initial = 0 }) {
         }
         .counter-value{
           width: 100%;
-          font-size: clamp(2.4rem, 6vw, 3.6rem);
+          font-size: clamp(2.6rem, 6.2vw, 3.8rem);
           line-height: 1.1;
           font-weight: 800;
           color: #fff;
