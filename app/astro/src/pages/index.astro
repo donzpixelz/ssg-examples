@@ -4,6 +4,11 @@ import DigitalClock from '../components/DigitalClock.jsx';
 import AnalogClock from '../components/AnalogClock.jsx';
 import Counter from '../components/Counter.jsx';
 import DateBanner from '../components/DateBanner.jsx';
+import Stopwatch from '../components/Stopwatch.jsx';
+import Pomodoro from '../components/Pomodoro.jsx';
+import TipCalc from '../components/TipCalc.jsx';
+import ProgressRingDemo from '../components/ProgressRing.jsx';
+
 ---
 <BaseLayout title="Astro Example · Home" description="React clocks and counter with proportional layout.">
     <section class="card card--chip react-wrap">
@@ -47,6 +52,51 @@ import DateBanner from '../components/DateBanner.jsx';
             <div class="v-divider" role="presentation"></div>
         </div>
     </section>
+    <!-- === New React Utilities Panel ====================================== -->
+    <section class="card card--chip utils-wrap">
+        <h2 class="text-light utils-title">React Utilities</h2>
+
+        <div class="utils-grid">
+            <article class="chip-card util">
+                <h3 class="text-light util-head">Stopwatch</h3>
+                <Stopwatch client:visible />
+            </article>
+
+            <article class="chip-card util">
+                <h3 class="text-light util-head">Pomodoro</h3>
+                <Pomodoro client:visible />
+            </article>
+
+            <article class="chip-card util">
+                <h3 class="text-light util-head">Tip Calculator</h3>
+                <TipCalc client:visible />
+            </article>
+
+            <article class="chip-card util">
+                <h3 class="text-light util-head">Progress Ring</h3>
+                <ProgressRingDemo client:visible />
+            </article>
+        </div>
+    </section>
+
+    <style>
+        .utils-wrap{
+            --rhythm: 12px;
+            --gap: clamp(12px, 2vw, 18px);
+        }
+        .utils-title{ text-align:center; margin:0 0 calc(var(--rhythm) * 2) }
+        .utils-grid{
+            display:grid;
+            grid-template-columns:1fr;
+            gap: var(--gap);
+        }
+        @media (min-width:900px){
+            .utils-grid{ grid-template-columns:1fr 1fr; }
+        }
+        .util{ padding:16px }
+        .util-head{ margin:0 0 10px; text-align:center }
+    </style>
+
 </BaseLayout>
 
 <style>
