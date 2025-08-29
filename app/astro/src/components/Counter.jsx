@@ -19,21 +19,24 @@ export default function Counter({ initial = 0 }) {
 
     return (
         <div className="counter-root" style={{ textAlign: "center" }}>
-            {/* DATE banner (top aligned with Analog heading via matching top margin) */}
+            {/* DATE banner at very top */}
             <div className="date-banner" aria-label={dateStr}>
                 <span className="date-text">{dateStr}</span>
             </div>
 
-            {/* NEW horizontal divider between date and counter area */}
+            {/* Fun name below the date */}
+            <div className="chip-name">Chip</div>
+
+            {/* Divider between date/name and counter */}
             <div className="counter-hr" role="presentation" />
 
-            {/* Spaced-out title across the same width */}
+            {/* Spaced-out title */}
             <div className="counter-title" aria-hidden="true">COUNTER</div>
 
             {/* Big centered number */}
             <div className="counter-value" aria-live="polite">{value}</div>
 
-            {/* Buttons evenly spaced under the value */}
+            {/* Buttons evenly spaced */}
             <div className="counter-buttons">
                 <button className="button tactile raised" onClick={() => set(v => v + 1)}>+1</button>
                 <button className="button tactile raised" onClick={() => set(v => v + 5)}>+5</button>
@@ -41,17 +44,15 @@ export default function Counter({ initial = 0 }) {
             </div>
 
             <style>{`
-        /* Inherit shared width from page: var(--colWidth) */
         .counter-root{
           width: 100%;
           max-width: var(--colWidth);
           margin-inline: auto;
         }
 
-        /* Match the analog heading's top margin so tops align */
         .date-banner{
           width: 100%;
-          margin: 1rem auto 0.95rem auto;  /* top = 1rem to match .analog-head top */
+          margin: 1rem auto 0.5rem auto;
           padding: .4rem .9rem;
           border: 1.5px solid rgba(255,255,255,.9);
           border-radius: 12px;
@@ -67,15 +68,21 @@ export default function Counter({ initial = 0 }) {
           letter-spacing:.05em;
           text-transform:uppercase;
           font-size: clamp(0.9rem, 2.2vw, 1.05rem);
-          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
         }
 
-        /* Thin horizontal divider between date and counter */
+        .chip-name{
+          margin: 0 auto 0.9rem auto;
+          font-size: 1rem;
+          font-weight: 700;
+          color: #fff;
+          opacity: 0.85;
+          letter-spacing: .08em;
+        }
+
         .counter-hr{
           width: 100%;
-          height: 0;
           border-top: 2px solid rgba(255,255,255,.35);
-          margin: .75rem auto 1rem auto; /* more space below date before counter */
+          margin: .75rem auto 1rem auto;
         }
 
         .counter-title{
@@ -86,14 +93,12 @@ export default function Counter({ initial = 0 }) {
           text-transform: uppercase;
           letter-spacing: .35em;
           word-spacing: .4em;
-          opacity: .95;
           font-size: .95rem;
         }
 
         .counter-value{
           width: 100%;
           font-size: clamp(2.4rem, 6vw, 3.6rem);
-          line-height: 1.1;
           font-weight: 800;
           color: #fff;
           padding: .55rem 1.2rem;
@@ -108,7 +113,6 @@ export default function Counter({ initial = 0 }) {
 
         .counter-buttons{
           width: 100%;
-          margin: 0 auto;
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: .75rem;
