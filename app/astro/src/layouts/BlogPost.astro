@@ -1,0 +1,17 @@
+---
+import Base from './Base.astro';
+const { frontmatter } = Astro.props;
+---
+<Base title={frontmatter.title}>
+<article class="post">
+    <h1>{frontmatter.title}</h1>
+    {frontmatter.date && (
+            <p class="post-meta">
+                <time datetime={frontmatter.date.toString()}>
+                    {new Date(frontmatter.date).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' })}
+                </time>
+            </p>
+    )}
+    <slot />
+</article>
+</Base>
