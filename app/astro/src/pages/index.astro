@@ -8,17 +8,27 @@ const posts = (await Astro.glob('./posts/*.md'))
     .sort((a, b) => new Date(b.frontmatter.date) - new Date(a.frontmatter.date))
     .slice(0, 8);
 ---
-<BaseLayout title="Astro Example · Home" description="A meaningful Astro homepage: what Astro is, why you'd use it, and how this demo is set up.">
+<BaseLayout
+        title="Astro Example · Home"
+        description="A meaningful Astro homepage: what Astro is, why you'd use it, and how this demo is set up."
+>
     <section class="card">
         <h1>Astro Example</h1>
-        <p><strong>Astro is a content-first static site builder</strong> that ships <em>zero JavaScript by default</em> and only hydrates interactive “islands” when you ask it to.</p>
+        <p>
+            <strong>Astro is a content-first static site builder</strong> that ships
+            <em> zero JavaScript by default</em> and only hydrates interactive
+            “islands” when you ask it to.
+        </p>
     </section>
 
     <section class="card">
         <h2>What Astro is (quick)</h2>
         <ul>
             <li><strong>Islands architecture:</strong> hydrate only what needs JS.</li>
-            <li><strong>Hydration directives:</strong> <code>client:load</code>, <code>client:visible</code>, <code>client:idle</code>.</li>
+            <li>
+                <strong>Hydration directives:</strong>
+                <code>client:load</code>, <code>client:visible</code>, <code>client:idle</code>.
+            </li>
             <li><strong>Framework-agnostic:</strong> React/Vue/Svelte/Solid + Markdown.</li>
             <li><strong>Fast by default:</strong> minimal JS; great Core Web Vitals.</li>
         </ul>
@@ -28,13 +38,13 @@ const posts = (await Astro.glob('./posts/*.md'))
     <section class="card card--chip react-wrap">
         <h2 class="text-light react-title">React Examples</h2>
 
-        <!-- Digital: full width, centered, with extra top spacing -->
+        <!-- Digital (full width, centered) -->
         <article class="chip-card digital-block">
             <h3 class="text-light sr-only">Digital (React)</h3>
             <DigitalClock client:visible />
         </article>
 
-        <!-- Analog + Counter: 50 / 50 with vertical divider -->
+        <!-- Two equal columns: Analog | Counter (with divider on wide screens) -->
         <div class="react-grid">
             <article class="chip-card analog-cell">
                 <h3 class="text-light">Analog (React)</h3>
@@ -46,7 +56,9 @@ const posts = (await Astro.glob('./posts/*.md'))
             <article class="chip-card counter-cell">
                 <h3 class="text-light">Counter</h3>
                 <div class="counter-center">
-                    <Counter client:idle initial={0} />
+                    <div class="counter-stack">
+                        <Counter client:idle initial={0} />
+                    </div>
                 </div>
             </article>
         </div>
@@ -57,11 +69,18 @@ const posts = (await Astro.glob('./posts/*.md'))
         {posts.length === 0 ? (
                 <p>No posts yet. Add one in <code>src/pages/posts/</code>, then rebuild.</p>
         ) : (
-            posts.map(p => (
+            posts.map((p) => (
                     <div class="list-item">
                         <a href={p.url}><strong>{p.frontmatter.title}</strong></a>
                         {p.frontmatter.date && (
-                                <small> — {new Date(p.frontmatter.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</small>
+                                <small>
+                                    {' '}—{' '}
+                                    {new Date(p.frontmatter.date).toLocaleDateString(undefined, {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric',
+                                    })}
+                                </small>
                         )}
                     </div>
             ))
@@ -70,45 +89,46 @@ const posts = (await Astro.glob('./posts/*.md'))
 </BaseLayout>
 
 <style>
-    /* Center the section title and add breathing room below it */
+    /* Title centered with extra breathing room below */
     .react-title{ text-align:center; margin:0 0 1.25rem }
 
-    /* Digital clock row: add top space that matches card’s top padding vibe */
-    .digital-block{ margin-top: .75rem; text-align:center }
+    /* Digital row centered + a touch more spacing from title */
+    .digital-block{ margin-top:.75rem; text-align:center }
 
     /* Two equal columns under the digital */
     .react-grid{
         display:grid;
-        grid-template-columns: 1fr;
+        grid-template-columns:1fr;
         gap:1rem;
         align-items:start;
     }
     @media (min-width:900px){
-        .react-grid{ grid-template-columns: 1fr 1fr; }
-        /* vertical divider only on wide screens */
-        .counter-cell{
-            border-left: 2px solid rgba(255,255,255,.35);
-            padding-left: 1rem;
-        }
+        .react-grid{ grid-template-columns:1fr 1fr; }
+        .counter-cell{ border-left:2px solid rgba(255,255,255,.35); padding-left:1rem; }
     }
 
-    /* Keep the analog from overpowering; center it in its column */
-    .analog-wrap{ max-width: 520px; margin-inline:auto; }
+    /* Center headings over their regions with balanced spacing */
+    .analog-cell h3,
+    .counter-cell h3{
+        text-align:center;
+        margin:.6rem 0 1rem;
+    }
 
-    /* Counter centered horizontally & vertically in its half */
+    /* Keep the analog contained and centered */
+    .analog-wrap{ max-width:520px; margin-inline:auto; }
+
+    /* Counter column: perfectly centered both ways */
     .counter-center{
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        min-height: 360px; /* gives room so it centers nicely vs the clock */
+        display:flex; align-items:center; justify-content:center;
+        min-height:360px;
+    }
+    .counter-stack{
+        display:flex; flex-direction:column; align-items:center; gap:.75rem;
     }
 
-    /* Make the two column headings align horizontally */
-    .analog-cell h3, .counter-cell h3{ margin-top:.25rem; margin-bottom:.75rem }
-
-    /* Hide the small “Digital (React)” heading but keep for a11y */
+    /* a11y: hide a heading visually but keep for screenreaders */
     .sr-only{
-        position:absolute!important;
-        width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+        position:absolute!important; width:1px; height:1px; padding:0; margin:-1px;
+        overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
     }
 </style>
