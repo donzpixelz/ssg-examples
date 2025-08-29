@@ -6,7 +6,6 @@ import Counter from '../components/Counter.jsx';
 import DateBanner from '../components/DateBanner.jsx';
 ---
 <BaseLayout title="Astro Example · Home" description="React clocks and counter with proportional layout.">
-    <!-- Keep your intro sections exactly as before if you like; keeping only the React card here -->
     <section class="card card--chip react-wrap">
         <h2 class="text-light react-title">React Examples</h2>
 
@@ -15,7 +14,7 @@ import DateBanner from '../components/DateBanner.jsx';
             <DigitalClock client:visible />
         </div>
 
-        <!-- PROPORTIONAL two-column area -->
+        <!-- Two equal columns; equal height; exact shared top baseline -->
         <div class="react-grid">
             <!-- LEFT column -->
             <div class="col left">
@@ -25,33 +24,33 @@ import DateBanner from '../components/DateBanner.jsx';
                 </div>
             </div>
 
-            <!-- RIGHT column (split 50/50: top = date+Chip, bottom = counter) -->
+            <!-- RIGHT column (strict 50/50 split) -->
             <div class="col right">
                 <div class="right-grid">
-                    <!-- top half -->
+                    <!-- RIGHT / TOP (Date + Chip) -->
                     <div class="right-top">
                         <DateBanner client:load />
                         <div class="chip-box">
                             <div class="chip-name" aria-label="Chip">Chip</div>
                         </div>
                     </div>
-                    <!-- horizontal divider only across right column -->
+                    <!-- Divider across right column only -->
                     <div class="right-divider" role="presentation"></div>
-                    <!-- bottom half -->
+                    <!-- RIGHT / BOTTOM (Counter) -->
                     <div class="right-bottom">
                         <Counter client:idle initial={0} />
                     </div>
                 </div>
             </div>
 
-            <!-- full-height vertical divider between columns -->
+            <!-- Full-height vertical divider -->
             <div class="v-divider" role="presentation"></div>
         </div>
     </section>
 </BaseLayout>
 
 <style>
-    /* --------- layout variables --------- */
+    /* ---------- Shared variables ---------- */
     .react-wrap{
         --rhythm: 12px;
         --colWidth: clamp(18rem, 46vw, 520px);
@@ -59,57 +58,44 @@ import DateBanner from '../components/DateBanner.jsx';
     }
 
     .react-title{ text-align:center; margin:0 0 calc(var(--rhythm) * 2) }
+    .digital-row{ text-align:center; margin: calc(var(--rhythm) * 1.5) 0 calc(var(--rhythm) * 2) }
 
-    .digital-row{
-        text-align:center;
-        margin: calc(var(--rhythm) * 1.5) 0 calc(var(--rhythm) * 2);
-    }
-
-    /* Two equal columns with equal height */
+    /* ---------- Two equal columns; equal height ---------- */
     .react-grid{
         position:relative;
         display:grid;
         grid-template-columns: 1fr;
-        gap: calc(var(--rhythm) * 1.5);
-        align-items: stretch;           /* equal heights */
+        column-gap: calc(var(--rhythm) * 1.5);
+        row-gap: calc(var(--rhythm) * 1.5);
+        align-items: stretch; /* equal heights */
     }
     @media (min-width:900px){
         .react-grid{ grid-template-columns: 1fr 1fr; }
     }
 
-    .col{
-        display:flex; flex-direction:column;
-        padding-top: var(--rhythm);     /* shared top baseline on both sides */
-    }
-
-    .col-head{ text-align:center; margin:0 0 var(--rhythm) }
+    /* IDENTICAL top baseline on both columns: no extra top padding anywhere */
+    .col{ display:flex; flex-direction:column; }
+    .col-head{ margin:0 0 var(--rhythm); text-align:center }
     .col-body{ max-width: var(--colWidth); margin-inline:auto }
 
-    /* RIGHT column is a 2-row grid with a thin divider row */
-    .right{ display:block }
+    /* RIGHT column: strict 50/50 split with a 2px middle row */
     .right-grid{
         display:grid;
-        grid-template-rows: 1fr 2px 1fr; /* top | divider | bottom */
+        grid-template-rows: 1fr 2px 1fr;  /* top | divider | bottom */
         height:100%;
     }
 
+    /* Top & bottom areas centered, no hidden vertical padding at the top */
     .right-top,
     .right-bottom{
-        display:flex;
-        flex-direction:column;
-        align-items:center;
-        justify-content:center;
-        padding: 0 calc(var(--rhythm) * 1);
+        display:flex; flex-direction:column; align-items:center; justify-content:center;
+        padding: 0 calc(var(--rhythm) * 1); /* horizontal padding only */
         gap: calc(var(--rhythm) * 1);
     }
 
-    /* horizontal divider across right column only */
-    .right-divider{
-        background: var(--divider);
-        border-radius:2px;
-    }
+    .right-divider{ background: var(--divider); border-radius:2px; }
 
-    /* full-height vertical divider between columns */
+    /* Full-height vertical divider perfectly centered */
     @media (min-width:900px){
         .v-divider{
             position:absolute; top:0; bottom:0; left:50%;
@@ -118,22 +104,22 @@ import DateBanner from '../components/DateBanner.jsx';
         }
     }
 
-    /* Chip styling (big, centered, no clipping) */
+    /* Chip styling (balanced, unclipped) */
     @import url('https://fonts.googleapis.com/css2?family=Pacifico&display=swap');
     .chip-box{ display:flex; align-items:center; justify-content:center; min-height:0 }
     .chip-name{
         position:relative;
         font-family:'Pacifico', cursive;
-        font-size: clamp(2.6rem, 6vw, 3.6rem);
+        font-size: clamp(2.3rem, 5.4vw, 3.2rem); /* ↓ slightly for balance vs. counter */
         line-height:1.3;
-        padding-bottom: 6px;
+        padding-bottom:6px; /* descender clearance */
         background: linear-gradient(90deg, #ffffff, #dbeafe);
         -webkit-background-clip:text; background-clip:text; color:transparent;
         text-shadow: 0 2px 10px rgba(0,0,0,.25), 0 0 1px rgba(255,255,255,.35);
     }
     .chip-name::after{
         content:""; position:absolute; left:50%; transform:translateX(-50%);
-        bottom:-10px; width:60%; height:4px; border-radius:999px;
+        bottom:-10px; width:58%; height:4px; border-radius:999px;
         background:linear-gradient(90deg, transparent, rgba(255,255,255,.7), transparent);
         box-shadow:0 4px 14px rgba(0,0,0,.2);
     }
