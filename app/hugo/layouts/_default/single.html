@@ -1,8 +1,14 @@
 {{ define "main" }}
 <article class="post">
     <h1>{{ .Title }}</h1>
-    {{ if .Date }}<p class="post-date"><time datetime="{{ .Date }}">{{ .Date.Format "Jan 2, 2006" }}</time></p>{{ end }}
+    {{ if .Date }}
+    <p class="post-date">
+        <time datetime="{{ .Date }}">{{ .Date.Format "Jan 2, 2006" }}</time>
+    </p>
+    {{ end }}
+
     {{ .Content }}
+
     {{ with .Params.tags }}
     <p class="post-tags">
         Tags:

@@ -1,0 +1,15 @@
+<header class="site-header" role="banner">
+    <h1 class="site-title">
+        <a href="{{ "/" | relURL }}">{{ .Site.Title }}</a>
+    </h1>
+
+    {{ with .Site.Menus.main }}
+    <nav class="site-nav" aria-label="Main">
+        <ul>
+            {{ range . }}
+            <li><a href="{{ .URL | relURL }}">{{ .Name }}</a></li>
+            {{ end }}
+        </ul>
+    </nav>
+    {{ end }}
+</header>

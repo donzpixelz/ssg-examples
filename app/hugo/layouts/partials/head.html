@@ -1,0 +1,15 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>
+    {{- if .IsHome -}}
+    {{ .Site.Title }}{{ with .Site.Params.tagline }} — {{ . }}{{ end }}
+    {{- else -}}
+    {{ .Title }} — {{ .Site.Title }}
+    {{- end -}}
+</title>
+{{ with .Params.description | default .Summary | default .Site.Params.description }}
+<meta name="description" content="{{ . | plainify }}">
+{{ end }}
+<link rel="canonical" href="{{ .Permalink }}">
+<link rel="stylesheet" href="{{ "css/main.css" | absURL }}">
+{{ hugo.Generator }}
