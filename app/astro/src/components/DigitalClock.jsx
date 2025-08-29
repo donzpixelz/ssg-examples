@@ -27,8 +27,14 @@ export default function DigitalClock() {
           display:block; width:100%; padding:.6rem .9rem; text-align:center;
         }
         .digital-wide .digital-large{ display:inline-block; }
+        /* AM/PM same size and color as digits */
         .digital-wide .ampm{
-          font-size:.9rem; letter-spacing:.06em; color:currentColor; opacity:.9;
+          font-size: 1em;           /* match the surrounding font-size */
+          letter-spacing:.06em;
+          color: currentColor;      /* same LED red */
+          opacity: 1;
+          vertical-align: baseline;
+          margin-left: .35ch;
         }
       `}</style>
         </div>

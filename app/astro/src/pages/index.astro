@@ -28,13 +28,13 @@ const posts = (await Astro.glob('./posts/*.md'))
     <section class="card card--chip react-wrap">
         <h2 class="text-light react-title">React Examples</h2>
 
-        <!-- Digital: full width, centered -->
-        <article class="chip-card">
+        <!-- Digital: full width, centered, with extra top spacing -->
+        <article class="chip-card digital-block">
             <h3 class="text-light sr-only">Digital (React)</h3>
             <DigitalClock client:visible />
         </article>
 
-        <!-- Analog + Counter: 50 / 50 -->
+        <!-- Analog + Counter: 50 / 50 with vertical divider -->
         <div class="react-grid">
             <article class="chip-card analog-cell">
                 <h3 class="text-light">Analog (React)</h3>
@@ -70,32 +70,41 @@ const posts = (await Astro.glob('./posts/*.md'))
 </BaseLayout>
 
 <style>
-    /* Center the section title */
-    .react-title { text-align:center; margin-bottom: .5rem; }
+    /* Center the section title and add breathing room below it */
+    .react-title{ text-align:center; margin:0 0 1.25rem }
 
-    /* Digital clock sits centered inside its row */
-    .react-wrap .chip-card:first-of-type { text-align:center; }
+    /* Digital clock row: add top space that matches card’s top padding vibe */
+    .digital-block{ margin-top: .75rem; text-align:center }
 
     /* Two equal columns under the digital */
     .react-grid{
         display:grid;
         grid-template-columns: 1fr;
         gap:1rem;
+        align-items:start;
     }
     @media (min-width:900px){
         .react-grid{ grid-template-columns: 1fr 1fr; }
+        /* vertical divider only on wide screens */
+        .counter-cell{
+            border-left: 2px solid rgba(255,255,255,.35);
+            padding-left: 1rem;
+        }
     }
 
-    /* Keep the analog from overpowering */
+    /* Keep the analog from overpowering; center it in its column */
     .analog-wrap{ max-width: 520px; margin-inline:auto; }
 
-    /* Counter centered both ways */
-    .counter-cell .counter-center{
+    /* Counter centered horizontally & vertically in its half */
+    .counter-center{
         display:flex;
         align-items:center;
         justify-content:center;
-        min-height: 320px; /* roughly matches analog min-height */
+        min-height: 360px; /* gives room so it centers nicely vs the clock */
     }
+
+    /* Make the two column headings align horizontally */
+    .analog-cell h3, .counter-cell h3{ margin-top:.25rem; margin-bottom:.75rem }
 
     /* Hide the small “Digital (React)” heading but keep for a11y */
     .sr-only{
