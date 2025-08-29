@@ -1,7 +1,8 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import Counter from '../components/Counter.jsx';
 import Clock from '../components/Clock.jsx';
+import AnalogClock from '../components/AnalogClock.jsx';
+import Counter from '../components/Counter.jsx';
 
 // Gather latest posts
 const posts = (await Astro.glob('./posts/*.md'))
@@ -17,7 +18,7 @@ const posts = (await Astro.glob('./posts/*.md'))
     <section class="card">
         <h2>What Astro is (quick)</h2>
         <ul>
-            <li><strong>Islands architecture:</strong> pages are mostly HTML; specific components hydrate on the client only when needed.</li>
+            <li><strong>Islands architecture:</strong> pages are mostly HTML; specific components hydrate only when needed.</li>
             <li><strong>Hydration directives:</strong> <code>client:load</code>, <code>client:visible</code>, <code>client:idle</code> control when a component becomes interactive.</li>
             <li><strong>Framework-agnostic:</strong> use React/Vue/Svelte/Solid alongside Astro/Markdown.</li>
             <li><strong>Markdown & MDX first:</strong> content files + frontmatter power listings.</li>
@@ -27,11 +28,16 @@ const posts = (await Astro.glob('./posts/*.md'))
 
     <section class="card">
         <h2>Islands in practice</h2>
-        <p>The page stays static; only the islands hydrate. The clock hydrates when visible; the counter waits for idle time. Panels use your Chip Blue with white border/glow and 10px radius.</p>
-        <div style="display:flex; flex-direction:column; gap:.75rem;">
-            <!-- Clock FIRST -->
+        <p>Digital + analog clocks side by side (hydrate on visibility), then a tactile counter below (hydrates when idle).</p>
+
+        <!-- Clocks row -->
+        <div class="islands-row">
             <Clock client:visible variant="chip" text="light" />
-            <!-- Counter SECOND with tactile buttons -->
+            <AnalogClock client:visible variant="chip" text="light" />
+        </div>
+
+        <!-- Counter below clocks -->
+        <div style="margin-top:.75rem;">
             <Counter client:idle initial={1} variant="chip" text="light" />
         </div>
     </section>
@@ -39,10 +45,10 @@ const posts = (await Astro.glob('./posts/*.md'))
     <section class="card">
         <h2>How this demo is set up</h2>
         <ul>
-            <li>Served under <code>/astro/</code> (see <code>astro.config.mjs</code> with <code>base: "/astro/"</code>).</li>
-            <li>Single-column layout via <code>BaseLayout.astro</code> and styles at <code>public/css/main.css</code> using <code>#3466cb</code>.</li>
-            <li>Blog posts live in <code>src/pages/posts/</code> with a <code>BlogPost.astro</code> layout.</li>
-            <li>Built to <code>dist/</code> and deployed to Nginx at <code>/usr/share/nginx/html/astro/</code>.</li>
+            <li>Served under <code>/astro/</code> (<code>base: "/astro/"</code> in config).</li>
+            <li>Single-column layout via <code>BaseLayout.astro</code>; styles in <code>public/css/main.css</code> using <code>#3466cb</code>.</li>
+            <li>Blog posts live in <code>src/pages/posts/</code> with <code>BlogPost.astro</code>.</li>
+            <li>Build to <code>dist/</code> and deploy to Nginx at <code>/usr/share/nginx/html/astro/</code>.</li>
         </ul>
     </section>
 

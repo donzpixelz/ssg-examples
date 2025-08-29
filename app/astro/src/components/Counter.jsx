@@ -16,23 +16,23 @@ export default function Counter({ initial = 0, variant = 'chip', text = 'light' 
                 Value: <strong>{count}</strong>
             </p>
 
-            <p style={{ marginTop: '.5rem', display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <p style={{ marginTop: '.6rem', display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
                 <button
-                    className="button tactile"
-                    onClick={() => setCount((c) => c + 1)}
+                    className="button tactile raised"
+                    onClick={() => setCount(c => c + 1)}
                     aria-label="Increase by 1"
                 >
                     +1
                 </button>
                 <button
-                    className="button tactile"
-                    onClick={() => setCount((c) => c + 5)}
+                    className="button tactile raised"
+                    onClick={() => setCount(c => c + 5)}
                     aria-label="Increase by 5"
                 >
                     +5
                 </button>
                 <button
-                    className="button tactile secondary"
+                    className="button tactile raised secondary"
                     onClick={() => setCount(0)}
                     aria-label="Reset to zero"
                 >

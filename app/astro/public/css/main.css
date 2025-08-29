@@ -133,3 +133,65 @@ code, pre, kbd, samp{
             0 2px 0 rgba(255,255,255,.2),
             0 8px 18px rgba(255,255,255,.12) inset;
 }
+
+
+/* --- Side-by-side row for islands (stacks on small screens) --- */
+.islands-row{
+    display: flex;
+    flex-direction: column;
+    gap: .75rem;
+}
+@media (min-width: 760px){
+    .islands-row{ flex-direction: row; }
+    .islands-row > *{ flex: 1 1 0; }
+}
+
+/* --- Tactile, obviously clickable buttons --- */
+.button.tactile.raised{
+    border-radius: 10px;
+    /* glossy-ish white with subtle top highlight */
+    background: linear-gradient(180deg, #ffffff 0%, #f6f8ff 100%);
+    color: var(--brand);
+    border: 1px solid rgba(0,0,0,.18);
+    /* strong elevation + white outer halo so it pops on blue */
+    box-shadow:
+            0 0 0 3px rgba(255,255,255,.60),       /* outer halo */
+            0 6px 0 rgba(0,0,0,.24),               /* hard drop offset */
+            0 14px 28px rgba(0,0,0,.28);           /* soft spread */
+    transform: translateY(0);
+    transition: transform .06s ease, box-shadow .12s ease, filter .12s ease;
+}
+.button.tactile.raised:hover{
+    filter: brightness(1.03);
+    box-shadow:
+            0 0 0 3px rgba(255,255,255,.70),
+            0 7px 0 rgba(0,0,0,.26),
+            0 18px 34px rgba(0,0,0,.30);
+}
+.button.tactile.raised:active{
+    transform: translateY(1px);
+    box-shadow:
+            0 0 0 3px rgba(255,255,255,.55),
+            0 3px 0 rgba(0,0,0,.30),
+            0 10px 20px rgba(0,0,0,.28);
+}
+.button.tactile.raised:focus-visible{
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+/* In blue chip panels, ensure perfect contrast */
+.card--chip .button.tactile.raised{
+    background: linear-gradient(180deg, #ffffff 0%, #eef2ff 100%);
+    color: var(--brand);
+    border-color: rgba(0,0,0,.22);
+}
+.card--chip .button.tactile.raised.secondary{
+    background: transparent;
+    color: #fff;
+    border: 1px solid #fff;
+    box-shadow:
+            0 0 0 3px rgba(255,255,255,.50),
+            0 6px 0 rgba(0,0,0,.22),
+            inset 0 0 0 1px rgba(255,255,255,.10);
+}
