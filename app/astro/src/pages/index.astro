@@ -54,8 +54,7 @@ const posts = (await Astro.glob('./posts/*.md'))
             </article>
 
             <article class="chip-card counter-cell">
-                <!-- hide column heading; component renders its own stylized title -->
-                <h3 class="text-light sr-only">Counter</h3>
+                <!-- We align the DATE banner's top with the Analog heading -->
                 <div class="counter-center">
                     <div class="counter-stack">
                         <Counter client:idle initial={0} />
@@ -93,7 +92,9 @@ const posts = (await Astro.glob('./posts/*.md'))
     .react-title{ text-align:center; margin:0 0 1.25rem }
     .digital-block{ margin-top:.75rem; text-align:center }
 
+    /* Two equal columns; share a common content width for both sides */
     .react-grid{
+        --colWidth: clamp(18rem, 46vw, 520px); /* used by both analog + counter */
         display:grid; grid-template-columns:1fr; gap:1rem; align-items:start;
     }
     @media (min-width:900px){
@@ -101,17 +102,24 @@ const posts = (await Astro.glob('./posts/*.md'))
         .counter-cell{ border-left:2px solid rgba(255,255,255,.35); padding-left:1rem; }
     }
 
+    /* Headings centered with balanced spacing */
     .analog-cell h3{ text-align:center; margin:.6rem 0 1rem }
-    .analog-wrap{ max-width:520px; margin-inline:auto; }
 
+    /* Keep the analog contained and centered using the shared width */
+    .analog-wrap{ max-width: var(--colWidth); margin-inline:auto; }
+
+    /* Counter column: perfectly centered both ways */
     .counter-center{
         display:flex; align-items:center; justify-content:center;
         min-height:360px;
     }
     .counter-stack{
         display:flex; flex-direction:column; align-items:center; gap:.75rem;
+        width:100%;
+        max-width: var(--colWidth);
     }
 
+    /* a11y helper */
     .sr-only{
         position:absolute!important; width:1px; height:1px; padding:0; margin:-1px;
         overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;

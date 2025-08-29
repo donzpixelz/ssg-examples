@@ -4,9 +4,9 @@ export default function Counter({ initial = 0 }) {
     const [value, set] = useState(initial);
     const [now, setNow] = useState(new Date());
 
-    // Refresh date periodically so it rolls over at midnight
+    // Tick date once a minute so it rolls over at midnight
     useEffect(() => {
-        const id = setInterval(() => setNow(new Date()), 60 * 1000); // every minute
+        const id = setInterval(() => setNow(new Date()), 60 * 1000);
         return () => clearInterval(id);
     }, []);
 
@@ -19,18 +19,18 @@ export default function Counter({ initial = 0 }) {
 
     return (
         <div className="counter-root" style={{ textAlign: "center" }}>
-            {/* Date banner */}
+            {/* DATE banner aligned horizontally with the Analog heading */}
             <div className="date-banner" aria-label={dateStr}>
                 <span className="date-text">{dateStr}</span>
             </div>
 
-            {/* Stylized title spread across width */}
+            {/* Spaced-out title across the same width */}
             <div className="counter-title" aria-hidden="true">COUNTER</div>
 
             {/* Big centered number with a subtle frame; no label */}
             <div className="counter-value" aria-live="polite">{value}</div>
 
-            {/* Buttons: evenly spaced under the value */}
+            {/* Buttons evenly spaced under the value */}
             <div className="counter-buttons">
                 <button className="button tactile raised" onClick={() => set(v => v + 1)}>+1</button>
                 <button className="button tactile raised" onClick={() => set(v => v + 5)}>+5</button>
@@ -38,14 +38,17 @@ export default function Counter({ initial = 0 }) {
             </div>
 
             <style>{`
-        /* Shared width for banner, title, value, and buttons */
+        /* Inherit shared width from page: var(--colWidth) */
         .counter-root{
-          --counterWidth: clamp(16rem, 42vw, 24rem);
+          width: 100%;
+          max-width: var(--colWidth);
+          margin-inline: auto;
         }
 
+        /* Align the top of the date banner with the Analog heading line */
         .date-banner{
-          width: var(--counterWidth);
-          margin: 0 auto .9rem auto;
+          width: 100%;
+          margin: .6rem auto 0.9rem auto; /* .6rem matches analog h3 top margin */
           padding: .4rem .9rem;
           border: 1.5px solid rgba(255,255,255,.9);
           border-radius: 12px;
@@ -61,25 +64,23 @@ export default function Counter({ initial = 0 }) {
           letter-spacing:.05em;
           text-transform:uppercase;
           font-size: clamp(0.9rem, 2.2vw, 1.05rem);
-          white-space:nowrap;
-          overflow:hidden;
-          text-overflow:ellipsis;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
         }
 
         .counter-title{
-          width: var(--counterWidth);
-          margin: 0 auto .4rem auto;
+          width: 100%;
+          margin: 0.35rem auto 0.4rem auto; /* sits just under the date */
           font-weight: 800;
           color:#fff;
           text-transform: uppercase;
-          letter-spacing: .35em;    /* spreads letters */
+          letter-spacing: .35em;
           word-spacing: .4em;
           opacity: .95;
           font-size: .95rem;
         }
 
         .counter-value{
-          width: var(--counterWidth);
+          width: 100%;
           font-size: clamp(2.4rem, 6vw, 3.6rem);
           line-height: 1.1;
           font-weight: 800;
@@ -95,7 +96,7 @@ export default function Counter({ initial = 0 }) {
         }
 
         .counter-buttons{
-          width: var(--counterWidth);
+          width: 100%;
           margin: 0 auto;
           display: grid;
           grid-template-columns: repeat(3, 1fr);
