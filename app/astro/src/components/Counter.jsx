@@ -4,7 +4,6 @@ export default function Counter({ initial = 0 }) {
     const [value, set] = useState(initial);
     const [now, setNow] = useState(new Date());
 
-    // Update date every minute
     useEffect(() => {
         const id = setInterval(() => setNow(new Date()), 60 * 1000);
         return () => clearInterval(id);
@@ -19,7 +18,7 @@ export default function Counter({ initial = 0 }) {
 
     return (
         <div className="counter-col">
-            {/* TOP HALF: Date + Chip */}
+            {/* TOP HALF: Date + Chip (uses rhythm-based spacing) */}
             <div className="top-half">
                 <div className="date-banner" aria-label={dateStr}>
                     <span className="date-text">{dateStr}</span>
@@ -27,14 +26,13 @@ export default function Counter({ initial = 0 }) {
                 <div className="chip-name" aria-label="Chip">Chip</div>
             </div>
 
-            {/* Horizontal divider exactly at the midpoint */}
+            {/* Mid divider at exact half */}
             <div className="mid-divider" role="presentation" />
 
-            {/* BOTTOM HALF: Counter title + value + buttons */}
+            {/* BOTTOM HALF: Counter */}
             <div className="bottom-half">
                 <div className="counter-title" aria-hidden="true">COUNTER</div>
                 <div className="counter-value" aria-live="polite">{value}</div>
-
                 <div className="counter-buttons">
                     <button className="button tactile raised" onClick={() => set(v => v + 1)}>+1</button>
                     <button className="button tactile raised" onClick={() => set(v => v + 5)}>+5</button>
@@ -45,27 +43,28 @@ export default function Counter({ initial = 0 }) {
             <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Pacifico&display=swap');
 
-        /* Full-height column with two equal rows + a thin middle row for the divider */
+        /* Proportional spacing scale (matches page) */
         .counter-col{
+          --rhythm: 12px;
           width: 100%;
           max-width: var(--colWidth);
           display: grid;
-          grid-template-rows: 1fr 2px 1fr;   /* top half | divider | bottom half */
+          grid-template-rows: 1fr 2px 1fr;   /* equal halves + divider */
           gap: 0;
         }
 
-        /* TOP HALF ------------------------------------------ */
+        /* ---------- TOP HALF (Date + Chip) ---------- */
         .top-half{
           display:flex;
           flex-direction:column;
           align-items:center;
           justify-content:flex-start;
-          padding-top: 1rem; /* aligns top with Analog heading */
+          padding-top: var(--rhythm);      /* aligns with Analog heading top margin */
+          gap: calc(var(--rhythm) * 0.75);
         }
         .date-banner{
           width: 100%;
-          margin: 0 auto .5rem auto;
-          padding: .45rem .9rem;
+          padding: calc(var(--rhythm) * 0.45) calc(var(--rhythm) * 0.75);
           border: 1.5px solid rgba(255,255,255,.9);
           border-radius: 12px;
           background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.06));
@@ -80,13 +79,12 @@ export default function Counter({ initial = 0 }) {
           letter-spacing:.05em;
           text-transform:uppercase;
           font-size: clamp(0.9rem, 2.2vw, 1.05rem);
-          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
           text-align:center;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
         }
         .chip-name{
-          margin: .15rem 0 0 0;
           font-family: 'Pacifico', cursive;
-          font-size: clamp(1.4rem, 3vw, 2rem);
+          font-size: clamp(1.6rem, 3.3vw, 2.2rem);
           line-height: 1.1;
           letter-spacing: .02em;
           background: linear-gradient(90deg, #ffffff, #dbeafe);
@@ -94,25 +92,25 @@ export default function Counter({ initial = 0 }) {
           background-clip: text;
           color: transparent;
           text-shadow: 0 2px 10px rgba(0,0,0,.25);
+          margin: 0;  /* precise spacing driven by grid gaps */
         }
 
-        /* MID DIVIDER --------------------------------------- */
+        /* ---------- MID DIVIDER ---------- */
         .mid-divider{
           width: 100%;
           height: 2px;
           background: rgba(255,255,255,.35);
           border-radius: 2px;
-          margin: 0; /* sits exactly at the midpoint */
         }
 
-        /* BOTTOM HALF --------------------------------------- */
+        /* ---------- BOTTOM HALF (Counter) ---------- */
         .bottom-half{
           display:flex;
           flex-direction:column;
           align-items:center;
-          justify-content:center; /* center content within the bottom half */
-          padding: 1rem 0;
-          gap: .6rem;
+          justify-content:center;
+          gap: calc(var(--rhythm) * 0.9);
+          padding: calc(var(--rhythm) * 1) 0;
         }
         .counter-title{
           width: 100%;
@@ -132,23 +130,20 @@ export default function Counter({ initial = 0 }) {
           line-height: 1.1;
           font-weight: 800;
           color: #fff;
-          padding: .55rem 1.2rem;
+          padding: calc(var(--rhythm) * 0.6) calc(var(--rhythm) * 1);
           border: 2px solid rgba(255,255,255,.95);
           border-radius: 12px;
           box-shadow:
             0 0 0 3px rgba(255,255,255,.18) inset,
             0 6px 18px rgba(0,0,0,.18);
-          margin: 0 auto .8rem auto;
-          min-width: 5.5ch;
           text-align:center;
         }
 
-        /* Evenly-spaced buttons under the value */
         .counter-buttons{
           width: 100%;
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: .75rem;
+          gap: calc(var(--rhythm) * 0.75);
           align-items: center;
           justify-items: center;
         }
