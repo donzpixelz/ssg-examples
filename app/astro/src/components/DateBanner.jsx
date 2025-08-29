@@ -15,8 +15,7 @@ export default function DateBanner(){
             <span className="date-text">{dateStr}</span>
             <style>{`
         .date-banner{
-          width: 100%;
-          max-width: 520px;
+          width: 100%; max-width: var(--colWidth);
           padding: .5rem .9rem;
           border: 1.5px solid rgba(255,255,255,.9);
           border-radius: 12px;

@@ -2,10 +2,12 @@ import { useState } from "react";
 
 export default function Counter({ initial = 0 }) {
     const [value, set] = useState(initial);
+
     return (
         <div className="counter">
             <div className="counter-title">COUNTER</div>
             <div className="counter-value">{value}</div>
+
             <div className="counter-buttons">
                 <button className="button tactile raised" onClick={() => set(v => v + 1)}>+1</button>
                 <button className="button tactile raised" onClick={() => set(v => v + 5)}>+5</button>
@@ -13,7 +15,10 @@ export default function Counter({ initial = 0 }) {
             </div>
 
             <style>{`
-        .counter{ width:100%; max-width:520px; display:flex; flex-direction:column; align-items:center; gap:.75rem }
+        .counter{
+          width:100%; max-width: var(--colWidth);
+          display:flex; flex-direction:column; align-items:center; gap:.8rem;
+        }
         .counter-title{
           color:#fff; font-weight:800; text-transform:uppercase;
           letter-spacing:.35em; font-size:.95rem;
@@ -21,7 +26,8 @@ export default function Counter({ initial = 0 }) {
         .counter-value{
           width:100%; text-align:center; color:#fff; font-weight:800;
           font-size: clamp(2.4rem, 6vw, 3.6rem);
-          padding:.6rem 1rem; border:2px solid rgba(255,255,255,.95); border-radius:12px;
+          padding:.6rem 1rem;
+          border:2px solid rgba(255,255,255,.95); border-radius:12px;
           box-shadow: inset 0 0 0 3px rgba(255,255,255,.18), 0 6px 18px rgba(0,0,0,.18);
         }
         .counter-buttons{
