@@ -1,17 +1,7 @@
 {{ define "main" }}
 <section class="home">
-    <!-- DEBUG banner so you KNOW this template is active -->
-    <div class="card"><strong>DEBUG:</strong> home template is active.</div>
+    {{ with .Content }}{{ . }}{{ end }}
 
-    {{ if .Content }}
-    {{ .Content }}
-    {{ else }}
-    <div class="card">
-        <p>No homepage content found. Create <code>content/_index.md</code>.</p>
-    </div>
-    {{ end }}
-
-    {{/* Optional: latest posts */}}
     {{ $posts := where .Site.RegularPages "Section" "in" (slice "posts" "blog" "news") }}
     {{ if gt (len $posts) 0 }}
     <h2>Latest</h2>

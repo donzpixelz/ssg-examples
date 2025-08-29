@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     pull_policy: always
     volumes:
-      # app content (multi-site: /jekyll, /hugo, /eleventy, /astro, plus optional /index.html)
+      # app content (multi-site: /jekyll, /hugo, /eleventy, /astro, plus optional /_index.md)
       - ./app:/usr/share/nginx/html:ro
 
       # nginx configs
