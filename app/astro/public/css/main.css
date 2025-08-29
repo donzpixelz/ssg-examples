@@ -101,3 +101,35 @@ code, pre, kbd, samp{
     color: #fff;
     border: 1px solid #fff;
 }
+
+/* --- Tactile buttons: shadow, press state, 10px radius --- */
+.button.tactile{
+    border-radius: 10px;
+    box-shadow: 0 2px 0 rgba(0,0,0,.2), 0 6px 16px rgba(0,0,0,.15);
+    transform: translateY(0);
+    transition: transform .06s ease, box-shadow .12s ease, filter .12s ease;
+}
+.button.tactile:hover{ filter: brightness(1.03); }
+.button.tactile:active{
+    transform: translateY(1px);
+    box-shadow: 0 1px 0 rgba(0,0,0,.24), 0 3px 10px rgba(0,0,0,.2);
+}
+.button.tactile:focus-visible{ outline: 2px solid #fff; outline-offset: 2px; }
+
+/* Inside Chip Blue panel: stronger contrast + subtle white glow */
+.card--chip .button.tactile{
+    background: #fff;                 /* white button on blue */
+    color: var(--brand);
+    border: 1px solid #fff;
+    box-shadow:
+            0 2px 0 rgba(20,20,20,.2),
+            0 10px 24px rgba(255,255,255,.18);
+}
+.card--chip .button.tactile.secondary{
+    background: transparent;          /* outlined white button */
+    color: #fff;
+    border: 1px solid #fff;
+    box-shadow:
+            0 2px 0 rgba(255,255,255,.2),
+            0 8px 18px rgba(255,255,255,.12) inset;
+}

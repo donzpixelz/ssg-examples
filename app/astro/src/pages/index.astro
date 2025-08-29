@@ -27,14 +27,12 @@ const posts = (await Astro.glob('./posts/*.md'))
 
     <section class="card">
         <h2>Islands in practice</h2>
-        <p>This page stays static; only the components below hydrate. The counter waits for idle time; the clock hydrates when visible. Both use your Chip Blue with white borders & glow.</p>
+        <p>The page stays static; only the islands hydrate. The clock hydrates when visible; the counter waits for idle time. Panels use your Chip Blue with white border/glow and 10px radius.</p>
         <div style="display:flex; flex-direction:column; gap:.75rem;">
-            <Counter client:idle initial={1} variant="chip" text="light" />
+            <!-- Clock FIRST -->
             <Clock client:visible variant="chip" text="light" />
-            {/*
-        To try dark text on the blue panel, swap to text="dark"
-        <Clock client:visible variant="chip" text="dark" />
-      */}
+            <!-- Counter SECOND with tactile buttons -->
+            <Counter client:idle initial={1} variant="chip" text="light" />
         </div>
     </section>
 
