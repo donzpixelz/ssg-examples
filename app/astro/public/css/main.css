@@ -200,11 +200,21 @@ code, pre, kbd, samp{
 
 /* Even 50/50 clocks row; same total width as the counter card */
 .islands-grid{
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr;
     gap: 1rem;
     margin: 0 0 1rem;
 }
+@media (min-width: 760px){
+    .islands-grid{
+        grid-template-columns: 1fr 1fr; /* EXACT halves */
+    }
+    .islands-grid > .card{
+        margin: 0;   /* kill card default margin inside the grid */
+        width: 100%;
+    }
+}
+
 @media (min-width: 760px){
     .islands-grid{ flex-direction: row; }
     .islands-grid > .card{ flex: 1 1 0; margin: 0; } /* make each clock fill half */
@@ -246,3 +256,28 @@ code, pre, kbd, samp{
             0 12px 22px rgba(0,0,0,.28);
 }
 .button.tactile.raised:focus-visible{ outline: 2px solid #fff; outline-offset: 2px; }
+
+
+/* Digital clock look */
+.digital{
+    font-family: 'Share Tech Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: .04em;
+}
+.digital-large{
+    font-size: clamp(2.2rem, 6vw, 3.2rem);
+}
+
+/* Black slab with rounded corners + red digits */
+.digital-slab{
+    display: inline-block;
+    background: #000;
+    border-radius: 10px;
+    padding: .35rem .6rem;
+    box-shadow:
+            inset 0 0 12px rgba(255,0,0,.20),
+            0 0 24px rgba(255,255,255,.08);
+}
+.digital-slab .digital{
+    color: #ff4040;
+    text-shadow: 0 0 8px rgba(255,64,64,.75);
+}

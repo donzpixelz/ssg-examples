@@ -1,52 +1,214 @@
-import { useEffect, useState, useMemo } from 'react';
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
 
-export default function AnalogClock({ baseSize = 220, variant = 'chip', text = 'light' }) {
-    const [now, setNow] = useState(new Date());
-    useEffect(() => {
-        const id = setInterval(() => setNow(new Date()), 1000);
-        return () => clearInterval(id);
-    }, []);
+/* ------------------------------------------------------------
+   Base variables
+------------------------------------------------------------ */
+:root{
+    --brand:#3466cb;
+    --text:#1f2328;
+    --muted:#5b6178;
+    --bg:#ffffff;
+    --bg-soft:#f6f8fa;
+    --border:#e5e7eb;
+}
 
-    const classes = [
-        'card',
-        variant === 'chip' ? 'card--chip' : '',
-        text === 'dark' ? 'text-dark' : 'text-light',
-    ].join(' ').trim();
+@media (prefers-color-scheme: dark){
+:root{
+        --text:#e5e7eb;
+        --muted:#a3a3a3;
+        --bg:#0b0f14;
+        --bg-soft:#11161d;
+        --border:#1f2937;
+    }
+}
 
-    const w = baseSize, h = baseSize, cx = baseSize / 2, cy = baseSize / 2, r = baseSize / 2 - 8;
+/* ------------------------------------------------------------
+   Reset-ish & base
+------------------------------------------------------------ */
+*{ box-sizing:border-box }
+body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+}
+a{ color:var(--brand); text-decoration-thickness:.08em; text-underline-offset:2px }
+img{ max-width:100%; height:auto }
 
-    const ticks = useMemo(() => Array.from({ length: 12 }, (_, i) => i), []);
-    const s = now.getSeconds();
-    const m = now.getMinutes();
-    const hr = now.getHours() % 12;
+/* Layout frame */
+header, footer, #content{ width:min(72ch, 100% - 2rem); margin-inline:auto }
+header{
+    display:flex; align-items:center; justify-content:space-between; gap:.75rem;
+    padding:1rem 0; border-bottom:1px solid var(--border);
+}
+.site-title{ text-decoration:none; color:inherit; font-weight:700; font-size:1.25rem }
+.site-nav a{ color:inherit; text-decoration:none; padding:.25rem .5rem; border-radius:.5rem }
+.site-nav a:hover{ background:var(--bg-soft) }
 
-    const sAng = s * 6;
-    const mAng = m * 6 + s * 0.1;
-    const hAng = hr * 30 + m * 0.5;
+#content{ padding-block:2rem }
+footer{ padding:2rem 0; border-top:1px solid var(--border); color:var(--muted); font-size:.95rem }
 
-    return (
-        <div className={classes} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <h2 style={{ marginTop: 0 }}>Clock (Analog)</h2>
-            <svg
-                viewBox={`0 0 ${w} ${h}`}
-                style={{ width: 'min(100%, 320px)', height: 'auto' }}
-                role="img"
-                aria-label="Analog clock"
-            >
-                <circle cx={cx} cy={cy} r={r} fill="rgba(255,255,255,.08)" stroke="#fff" strokeWidth="2" />
-                {ticks.map(i => {
-                    const ang = (i / 12) * 2 * Math.PI;
-                    const x1 = cx + Math.sin(ang) * (r - 10);
-                    const y1 = cy - Math.cos(ang) * (r - 10);
-                    const x2 = cx + Math.sin(ang) * (r - 2);
-                    const y2 = cy - Math.cos(ang) * (r - 2);
-                    return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#fff" strokeWidth="2" strokeLinecap="round" />;
-                })}
-                <line x1={cx} y1={cy} x2={cx} y2={cy - (r * 0.5)} stroke="#fff" strokeWidth="4" strokeLinecap="round" transform={`rotate(${hAng} ${cx} ${cy})`} />
-                <line x1={cx} y1={cy} x2={cx} y2={cy - (r * 0.75)} stroke="#fff" strokeWidth="3" strokeLinecap="round" transform={`rotate(${mAng} ${cx} ${cy})`} />
-                <line x1={cx} y1={cy + 6} x2={cx} y2={cy - (r * 0.82)} stroke="#f2c94c" strokeWidth="2" strokeLinecap="round" transform={`rotate(${sAng} ${cx} ${cy})`} />
-                <circle cx={cx} cy={cy} r="3.5" fill="#fff" />
-            </svg>
-        </div>
-    );
+/* Cards & buttons */
+.card{
+    background:var(--bg-soft);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:1rem;
+}
+.button{
+    display:inline-block; cursor:pointer;
+    background:var(--brand); color:#fff; text-decoration:none;
+    padding:.5rem .8rem; border-radius:.6rem; font-weight:600; border:0;
+}
+.button.secondary{ background:transparent; color:var(--brand); border:1px solid var(--brand) }
+.list-item{ padding:.6rem 0; border-bottom:1px dashed var(--border) }
+.list-item:last-child{ border-bottom:0 }
+.post h1{ margin-top:0 }
+.post-meta{ color:var(--muted); margin-top:-.25rem }
+
+/* ------------------------------------------------------------
+   Code blocks (Shiki)
+------------------------------------------------------------ */
+pre.astro-code, .astro-code pre{
+    background:var(--bg-soft);
+    border:1px solid var(--border);
+    border-radius:.6rem;
+    padding:1rem;
+    overflow:auto;
+    margin:0 0 1rem;
+}
+code, pre, kbd, samp{
+    font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size:.95em;
+}
+
+/* ------------------------------------------------------------
+   Chip Blue panels (white border/glow, 10px radius)
+------------------------------------------------------------ */
+.card--chip{
+    background:var(--brand); /* #3466cb */
+    color:#fff;
+    border:1.5px solid rgba(255,255,255,.95);
+    border-radius:10px;
+    box-shadow:
+    0 0 0 2px rgba(255,255,255,.12) inset,
+        0 10px 28px rgba(255,255,255,.12);
+}
+.card--chip a{ color:#fff; text-decoration:underline }
+
+/* Text overrides for edge cases inside chip card */
+.text-light{ color:#fff !important }
+.text-dark{ color:#0b0f14 !important }
+
+/* Buttons inside chip card */
+.card--chip .button{
+    background:#fff; color:var(--brand); border:1px solid #fff;
+}
+.card--chip .button.secondary{
+    background:transparent; color:#fff; border:1px solid #fff;
+}
+
+/* ------------------------------------------------------------
+   Tactile / raised buttons (obviously clickable)
+------------------------------------------------------------ */
+.button.tactile{
+    border-radius:10px;
+    box-shadow:0 2px 0 rgba(0,0,0,.2), 0 6px 16px rgba(0,0,0,.15);
+    transform:translateY(0);
+    transition:transform .06s ease, box-shadow .12s ease, filter .12s ease;
+}
+.button.tactile:hover{ filter:brightness(1.03) }
+.button.tactile:active{
+    transform:translateY(1px);
+    box-shadow:0 1px 0 rgba(0,0,0,.24), 0 3px 10px rgba(0,0,0,.2);
+}
+.button.tactile:focus-visible{ outline:2px solid #fff; outline-offset:2px }
+
+/* Stronger raised look */
+.button.tactile.raised{
+    border-radius:10px;
+    background:linear-gradient(180deg, #ffffff 0%, #eef2ff 100%);
+    color:var(--brand);
+    border:1px solid rgba(0,0,0,.22);
+    box-shadow:
+    0 0 0 3px rgba(255,255,255,.70), /* halo against blue */
+        0 7px 0 rgba(0,0,0,.26),         /* hard drop */
+        0 18px 34px rgba(0,0,0,.30);     /* soft spread */
+}
+.button.tactile.raised:hover{ filter:brightness(1.04) }
+.button.tactile.raised:active{
+    transform:translateY(1px);
+    box-shadow:
+    0 0 0 3px rgba(255,255,255,.60),
+        0 4px 0 rgba(0,0,0,.28),
+        0 12px 22px rgba(0,0,0,.28);
+}
+
+/* In chip panels, ensure contrast */
+.card--chip .button.tactile.raised{
+    background:linear-gradient(180deg, #ffffff 0%, #eef2ff 100%);
+    color:var(--brand);
+    border-color:rgba(0,0,0,.22);
+}
+.card--chip .button.tactile.raised.secondary{
+    background:transparent; color:#fff; border:1px solid #fff;
+    box-shadow:
+    0 0 0 3px rgba(255,255,255,.50),
+        0 6px 0 rgba(0,0,0,.22),
+        inset 0 0 0 1px rgba(255,255,255,.10);
+}
+
+/* ------------------------------------------------------------
+   Islands layout (clocks row = exact halves)
+------------------------------------------------------------ */
+.islands-grid{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:1rem;
+    margin:0 0 1rem;
+}
+@media (min-width:760px){
+.islands-grid{ grid-template-columns:1fr 1fr } /* EXACT halves */
+}
+.islands-grid > .card{ margin:0; width:100% }
+
+/* ------------------------------------------------------------
+   Digital clock look (+ glossy slab)
+------------------------------------------------------------ */
+.digital{
+    font-family:'Share Tech Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing:.04em;
+}
+.digital-large{ font-size:clamp(2.2rem, 6vw, 3.2rem) }
+
+.digital-slab{
+    position:relative;
+    display:inline-block;
+    background:#000;
+    border-radius:10px;
+    padding:.35rem .6rem;
+    box-shadow:
+    inset 0 0 12px rgba(255,0,0,.20),
+        0 0 24px rgba(255,255,255,.08);
+}
+.digital-slab .digital{
+    color:#ff4040;
+    text-shadow:0 0 8px rgba(255,64,64,.75);
+}
+/* subtle glass gloss */
+.digital-slab::before{
+    content:"";
+    position:absolute;
+    left:6px; right:6px; top:6px; height:42%;
+    background:linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,.06));
+    border-radius:8px;
+    pointer-events:none;
+    mix-blend-mode:screen;
+}
+
+/* ------------------------------------------------------------
+   Motion preference
+------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce){
+*{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; scroll-behavior:auto !important }
 }

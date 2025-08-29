@@ -16,9 +16,11 @@ export default function Clock({ variant = 'chip', text = 'light' }) {
     return (
         <div className={classes}>
             <h2 style={{ marginTop: 0 }}>Clock (React)</h2>
-            <p className="digital digital-large" style={{ margin: 0 }}>
-                {now.toLocaleTimeString()}
-            </p>
+            <div className="digital-slab">
+        <span className="digital digital-large">
+          {now.toLocaleTimeString()}
+        </span>
+            </div>
         </div>
     );
 }
