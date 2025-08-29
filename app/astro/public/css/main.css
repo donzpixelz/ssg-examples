@@ -38,3 +38,22 @@ footer{padding:2rem 0;border-top:1px solid var(--border);color:var(--muted);font
 .list-item:last-child{border-bottom:0}
 .post h1{margin-top:0}
 .post-meta{color:var(--muted);margin-top:-.25rem}
+
+
+/* --- Two-column grid for the Astro home --- */
+.two-col { display: block; }
+
+/* Wide screens: switch to grid */
+@media (min-width: 960px){
+    .two-col{
+        display: grid;
+        grid-template-columns: 2fr 1fr; /* main / sidebar */
+        gap: 1.25rem;
+        align-items: start;
+    }
+    .two-col > .card { margin: 0; }         /* remove default block spacing */
+    .two-col > .card.hero { grid-column: 1 / -1; } /* hero spans both columns */
+}
+
+/* Optional: hero polish */
+.card.hero h1{ margin-top: 0; }
