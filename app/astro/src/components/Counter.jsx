@@ -1,44 +1,15 @@
-import { useState } from 'react';
+import { useState } from "react";
 
-export default function Counter({ initial = 0, variant = 'chip', text = 'light' }) {
-    const [count, setCount] = useState(initial);
-
-    const classes = [
-        'card',
-        variant === 'chip' ? 'card--chip' : '',
-        text === 'dark' ? 'text-dark' : 'text-light',
-    ].join(' ').trim();
-
+export default function Counter() {
+    const [value, set] = useState(0);
     return (
-        <div className={classes}>
-            <h2 style={{ marginTop: 0 }}>Counter (React)</h2>
-            <p style={{ margin: 0 }}>
-                Value: <strong>{count}</strong>
-            </p>
-
-            <p style={{ marginTop: '.6rem', display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-                <button
-                    className="button tactile raised"
-                    onClick={() => setCount(c => c + 1)}
-                    aria-label="Increase by 1"
-                >
-                    +1
-                </button>
-                <button
-                    className="button tactile raised"
-                    onClick={() => setCount(c => c + 5)}
-                    aria-label="Increase by 5"
-                >
-                    +5
-                </button>
-                <button
-                    className="button tactile raised secondary"
-                    onClick={() => setCount(0)}
-                    aria-label="Reset to zero"
-                >
-                    Reset
-                </button>
-            </p>
+        <div>
+            <p>Value: <strong>{value}</strong></p>
+            <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
+                <button onClick={() => set(v => v + 1)}>+1</button>
+                <button onClick={() => set(v => v + 5)}>+5</button>
+                <button onClick={() => set(0)}>Reset</button>
+            </div>
         </div>
     );
 }

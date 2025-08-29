@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Counter from '../components/Counter.jsx';
-import Clock from '../components/Clock.jsx';
+import DigitalClock from '../components/DigitalClock.jsx';
 ---
 <BaseLayout title="React demo · Astro Example" description="React islands inside an Astro page.">
     <section class="card">
@@ -13,7 +13,7 @@ import Clock from '../components/Clock.jsx';
     <Counter client:load initial={1} />
 
     <!-- Hydrates when scrolled into view -->
-    <Clock client:visible />
+    <DigitalClock client:visible />
 
     <section class="card">
         <h2>Hydration controls</h2>
