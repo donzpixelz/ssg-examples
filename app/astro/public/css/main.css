@@ -72,3 +72,32 @@ code, pre, kbd, samp{
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: .95em;
 }
+
+/* --- Chip Blue island panel (white border, white glow, 10px radius) --- */
+.card--chip{
+    background: var(--brand);              /* #3466cb */
+    color: #fff;
+    border: 1.5px solid rgba(255,255,255,.95);
+    border-radius: 10px;
+    /* subtle white-ish glow on dark backgrounds */
+    box-shadow:
+            0 0 0 2px rgba(255,255,255,.12) inset,
+            0 10px 28px rgba(255,255,255,.12);
+}
+.card--chip a{ color:#fff; text-decoration: underline; }
+
+/* Text toggles for edge cases */
+.text-light{ color: #fff !important; }
+.text-dark{ color: #0b0f14 !important; }
+
+/* Buttons inside the blue panel: keep contrast */
+.card--chip .button{
+    background: #fff;            /* solid white button */
+    color: var(--brand);
+    border: 1px solid #fff;
+}
+.card--chip .button.secondary{
+    background: transparent;     /* outlined white button */
+    color: #fff;
+    border: 1px solid #fff;
+}

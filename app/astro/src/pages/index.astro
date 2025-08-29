@@ -1,7 +1,9 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import Counter from '../components/Counter.jsx';
+import Clock from '../components/Clock.jsx';
 
-// Gather latest posts for the list at the bottom
+// Gather latest posts
 const posts = (await Astro.glob('./posts/*.md'))
     .sort((a, b) => new Date(b.frontmatter.date) - new Date(a.frontmatter.date))
     .slice(0, 8);
@@ -16,33 +18,34 @@ const posts = (await Astro.glob('./posts/*.md'))
         <h2>What Astro is (quick)</h2>
         <ul>
             <li><strong>Islands architecture:</strong> pages are mostly HTML; specific components hydrate on the client only when needed.</li>
-            <li><strong>Partial hydration directives:</strong> <code>client:load</code>, <code>client:visible</code>, <code>client:idle</code>, etc., control when a component becomes interactive.</li>
-            <li><strong>Framework-agnostic:</strong> drop in React/Vue/Svelte/Solid components alongside plain Astro/Markdown.</li>
-            <li><strong>Markdown & MDX first:</strong> write content as files; frontmatter drives metadata and lists.</li>
-            <li><strong>Fast by default:</strong> minimal JS, built-time rendering, excellent Core Web Vitals.</li>
+            <li><strong>Hydration directives:</strong> <code>client:load</code>, <code>client:visible</code>, <code>client:idle</code> control when a component becomes interactive.</li>
+            <li><strong>Framework-agnostic:</strong> use React/Vue/Svelte/Solid alongside Astro/Markdown.</li>
+            <li><strong>Markdown & MDX first:</strong> content files + frontmatter power listings.</li>
+            <li><strong>Fast by default:</strong> minimal JS, build-time rendering, excellent CWV.</li>
         </ul>
+    </section>
+
+    <section class="card">
+        <h2>Islands in practice</h2>
+        <p>This page stays static; only the components below hydrate. The counter waits for idle time; the clock hydrates when visible. Both use your Chip Blue with white borders & glow.</p>
+        <div style="display:flex; flex-direction:column; gap:.75rem;">
+            <Counter client:idle initial={1} variant="chip" text="light" />
+            <Clock client:visible variant="chip" text="light" />
+            {/*
+        To try dark text on the blue panel, swap to text="dark"
+        <Clock client:visible variant="chip" text="dark" />
+      */}
+        </div>
     </section>
 
     <section class="card">
         <h2>How this demo is set up</h2>
         <ul>
             <li>Served under <code>/astro/</code> (see <code>astro.config.mjs</code> with <code>base: "/astro/"</code>).</li>
-            <li>Single-column layout via <code>BaseLayout.astro</code> and a tiny CSS file at <code>public/css/main.css</code> using your blue <code>#3466cb</code>.</li>
-            <li>Blog posts live in <code>src/pages/posts/</code> as Markdown with frontmatter and a <code>BlogPost.astro</code> layout.</li>
-            <li>Static output built to <code>dist/</code> and rsynced to your Nginx path <code>/usr/share/nginx/html/astro/</code>.</li>
+            <li>Single-column layout via <code>BaseLayout.astro</code> and styles at <code>public/css/main.css</code> using <code>#3466cb</code>.</li>
+            <li>Blog posts live in <code>src/pages/posts/</code> with a <code>BlogPost.astro</code> layout.</li>
+            <li>Built to <code>dist/</code> and deployed to Nginx at <code>/usr/share/nginx/html/astro/</code>.</li>
         </ul>
-    </section>
-
-    <section class="card">
-        <h2>Islands in practice (tiny demo snippet)</h2>
-        <p>You can sprinkle interactivity anywhere without turning the whole page into an SPA:</p>
-        <pre><code>---
-// Example: a React counter island
-// import Counter from '../components/Counter.jsx';
----
-// &lt;Counter client:load /&gt;  <!-- Hydrates only this piece -->
-</code></pre>
-        <p>Commented out so this page stays static; drop a real component in later if you want.</p>
     </section>
 
     <section class="card">
@@ -60,5 +63,4 @@ const posts = (await Astro.glob('./posts/*.md'))
             ))
         )}
     </section>
-
 </BaseLayout>

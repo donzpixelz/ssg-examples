@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react';
 
-export default function Clock() {
+export default function Clock({ variant = 'chip', text = 'light' }) {
     const [now, setNow] = useState(new Date());
     useEffect(() => {
         const id = setInterval(() => setNow(new Date()), 1000);
         return () => clearInterval(id);
     }, []);
+
+    const classes = [
+        'card',
+        variant === 'chip' ? 'card--chip' : '',
+        text === 'dark' ? 'text-dark' : 'text-light',
+    ].join(' ').trim();
+
     return (
-        <div className="card">
-            <h2>Clock (React)</h2>
-            <p style={{ fontVariantNumeric: 'tabular-nums', margin: 0 }}>
+        <div className={classes} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <h2 style={{ marginTop: 0 }}>Clock (React)</h2>
+            <p style={{ margin: 0 }}>
                 {now.toLocaleTimeString()}
             </p>
         </div>
