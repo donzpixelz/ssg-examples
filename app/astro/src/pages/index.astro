@@ -1,31 +1,31 @@
 ---
-import Base from '../layouts/Base.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
 ---
-<Base title="Astro Example · Home" description="Starter Astro layout with blog list and clean styles.">
-<section class="card">
-  <h2>Welcome</h2>
-  <p>This is a minimal Astro starter mounted at <code>/astro/</code>. Edit pages in <code>src/pages/</code>, layouts in <code>src/layouts/</code>, and styles in <code>public/css/main.css</code>.</p>
-  <p>
-    <a class="button" href={import.meta.env.BASE_URL + 'posts/'}>Read the blog</a>
-    <a class="button secondary" href={import.meta.env.BASE_URL + 'about/'}>About</a>
-  </p>
-</section>
+<BaseLayout title="Astro Example · Home" description="Starter Astro layout with blog list and clean styles.">
+  <section class="card">
+    <h2>Welcome</h2>
+    <p>This is a minimal Astro starter mounted at <code>/astro/</code>. Edit pages in <code>src/pages/</code>, layouts in <code>src/layouts/</code>, and styles in <code>public/css/main.css</code>.</p>
+    <p>
+      <a class="button" href={import.meta.env.BASE_URL + 'posts/'}>Read the blog</a>
+      <a class="button secondary" href={import.meta.env.BASE_URL + 'about/'}>About</a>
+      <a class="button secondary" href={import.meta.env.BASE_URL + 'contact/'}>Contact</a>
+    </p>
+  </section>
 
-<section>
-  <h2>Latest</h2>
-  <!-- Simple latest posts list (reads Markdown files in /posts/) -->
-  {
-    (await Astro.glob('./posts/*.md'))
-        .sort((a, b) => new Date(b.frontmatter.date) - new Date(a.frontmatter.date))
-        .slice(0, 8)
-        .map(p => (
-            <div class="list-item">
-              <a href={p.url}><strong>{p.frontmatter.title}</strong></a>
-              {p.frontmatter.date && (
-                  <small> — {new Date(p.frontmatter.date).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' })}</small>
-              )}
-            </div>
-        ))
-  }
-</section>
-</Base>
+  <section>
+    <h2>Latest</h2>
+    {
+      (await Astro.glob('./posts/*.md'))
+          .sort((a, b) => new Date(b.frontmatter.date) - new Date(a.frontmatter.date))
+          .slice(0, 8)
+          .map(p => (
+              <div class="list-item">
+                <a href={p.url}><strong>{p.frontmatter.title}</strong></a>
+                {p.frontmatter.date && (
+                    <small> — {new Date(p.frontmatter.date).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' })}</small>
+                )}
+              </div>
+          ))
+    }
+  </section>
+</BaseLayout>

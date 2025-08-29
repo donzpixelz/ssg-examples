@@ -1,17 +1,17 @@
 ---
-import Base from '../../layouts/Base.astro';
+import BaseLayout from '../../layouts/BaseLayout.astro';
 const posts = (await Astro.glob('./*.md'))
     .sort((a, b) => new Date(b.frontmatter.date) - new Date(a.frontmatter.date));
 ---
-<Base title="Blog · Astro Example">
-<h1>Blog</h1>
-{posts.length === 0 && <p>No posts yet.</p>}
-{posts.map(p => (
-<div class="list-item">
-    <a href={p.url}><strong>{p.frontmatter.title}</strong></a>
-    {p.frontmatter.date && (
-            <small> — {new Date(p.frontmatter.date).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' })}</small>
-    )}
-</div>
+<BaseLayout title="Blog · Astro Example">
+    <h1>Blog</h1>
+    {posts.length === 0 && <p>No posts yet.</p>}
+    {posts.map(p => (
+            <div class="list-item">
+                <a href={p.url}><strong>{p.frontmatter.title}</strong></a>
+                {p.frontmatter.date && (
+                        <small> — {new Date(p.frontmatter.date).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' })}</small>
+                )}
+            </div>
     ))}
-</Base>
+</BaseLayout>
