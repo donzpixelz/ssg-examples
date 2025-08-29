@@ -17,26 +17,18 @@ export default function DigitalClock() {
         <div className="digital-wide">
             <div className="digital-slab">
                 <div className="digital digital-large">
-                    {h}:{mm}:{ss}
-                    {/* inline AM/PM same color */}
-                    <span className="ampm"> {ampm}</span>
+                    {h}:{mm}:{ss}<span className="ampm"> {ampm}</span>
                 </div>
             </div>
 
             <style>{`
-        /* override: make slab full-width instead of inline-block */
+        /* full width slab, centered content */
         .digital-wide .digital-slab{
-          display:block;
-          width:100%;
-          padding:.5rem .8rem;
+          display:block; width:100%; padding:.6rem .9rem; text-align:center;
         }
-        /* keep the LED look, but AM/PM inline + same color */
+        .digital-wide .digital-large{ display:inline-block; }
         .digital-wide .ampm{
-          font-size: .9rem;
-          letter-spacing:.06em;
-          vertical-align: baseline;
-          color: currentColor; /* same as digits (#ff4040 via your CSS) */
-          opacity:.9;
+          font-size:.9rem; letter-spacing:.06em; color:currentColor; opacity:.9;
         }
       `}</style>
         </div>
