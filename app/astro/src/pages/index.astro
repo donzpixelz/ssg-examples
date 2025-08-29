@@ -47,14 +47,13 @@ const posts = (await Astro.glob('./posts/*.md'))
         <!-- Two equal columns: Analog | Counter (with divider on wide screens) -->
         <div class="react-grid">
             <article class="chip-card analog-cell">
-                <h3 class="text-light">Analog (React)</h3>
+                <h3 class="text-light analog-head">Analog (React)</h3>
                 <div class="analog-wrap">
                     <AnalogClock client:visible />
                 </div>
             </article>
 
             <article class="chip-card counter-cell">
-                <!-- We align the DATE banner's top with the Analog heading -->
                 <div class="counter-center">
                     <div class="counter-stack">
                         <Counter client:idle initial={0} />
@@ -90,20 +89,22 @@ const posts = (await Astro.glob('./posts/*.md'))
 
 <style>
     .react-title{ text-align:center; margin:0 0 1.25rem }
-    .digital-block{ margin-top:.75rem; text-align:center }
+
+    /* More space under the digital clock row */
+    .digital-block{ margin-top:.9rem; margin-bottom:1.25rem; text-align:center }
 
     /* Two equal columns; share a common content width for both sides */
     .react-grid{
         --colWidth: clamp(18rem, 46vw, 520px); /* used by both analog + counter */
-        display:grid; grid-template-columns:1fr; gap:1rem; align-items:start;
+        display:grid; grid-template-columns:1fr; row-gap:1.25rem; column-gap:1rem; align-items:start;
     }
     @media (min-width:900px){
         .react-grid{ grid-template-columns:1fr 1fr; }
         .counter-cell{ border-left:2px solid rgba(255,255,255,.35); padding-left:1rem; }
     }
 
-    /* Headings centered with balanced spacing */
-    .analog-cell h3{ text-align:center; margin:.6rem 0 1rem }
+    /* Heading above analog */
+    .analog-head{ text-align:center; margin:1rem 0 1rem } /* <-- controls the alignment line */
 
     /* Keep the analog contained and centered using the shared width */
     .analog-wrap{ max-width: var(--colWidth); margin-inline:auto; }

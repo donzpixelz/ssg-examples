@@ -4,7 +4,7 @@ export default function Counter({ initial = 0 }) {
     const [value, set] = useState(initial);
     const [now, setNow] = useState(new Date());
 
-    // Tick date once a minute so it rolls over at midnight
+    // Update date every minute
     useEffect(() => {
         const id = setInterval(() => setNow(new Date()), 60 * 1000);
         return () => clearInterval(id);
@@ -19,15 +19,18 @@ export default function Counter({ initial = 0 }) {
 
     return (
         <div className="counter-root" style={{ textAlign: "center" }}>
-            {/* Date banner (nudged up to align with Analog heading) */}
+            {/* DATE banner (top aligned with Analog heading via matching top margin) */}
             <div className="date-banner" aria-label={dateStr}>
                 <span className="date-text">{dateStr}</span>
             </div>
 
+            {/* NEW horizontal divider between date and counter area */}
+            <div className="counter-hr" role="presentation" />
+
             {/* Spaced-out title across the same width */}
             <div className="counter-title" aria-hidden="true">COUNTER</div>
 
-            {/* Big centered number with a subtle frame; no label */}
+            {/* Big centered number */}
             <div className="counter-value" aria-live="polite">{value}</div>
 
             {/* Buttons evenly spaced under the value */}
@@ -40,17 +43,15 @@ export default function Counter({ initial = 0 }) {
             <style>{`
         /* Inherit shared width from page: var(--colWidth) */
         .counter-root{
-          --dateTopAdjust: -2px; /* nudge UP; tweak if you want finer alignment */
           width: 100%;
           max-width: var(--colWidth);
           margin-inline: auto;
         }
 
-        /* Move the date up and give extra space below (counter stays put) */
+        /* Match the analog heading's top margin so tops align */
         .date-banner{
           width: 100%;
-          margin: .25rem auto 1.6rem auto; /* smaller top, larger bottom */
-          transform: translateY(var(--dateTopAdjust));
+          margin: 1rem auto 0.95rem auto;  /* top = 1rem to match .analog-head top */
           padding: .4rem .9rem;
           border: 1.5px solid rgba(255,255,255,.9);
           border-radius: 12px;
@@ -69,9 +70,17 @@ export default function Counter({ initial = 0 }) {
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
         }
 
+        /* Thin horizontal divider between date and counter */
+        .counter-hr{
+          width: 100%;
+          height: 0;
+          border-top: 2px solid rgba(255,255,255,.35);
+          margin: .75rem auto 1rem auto; /* more space below date before counter */
+        }
+
         .counter-title{
           width: 100%;
-          margin: 0 .0 .45rem .0;
+          margin: 0 0 .45rem 0;
           font-weight: 800;
           color:#fff;
           text-transform: uppercase;
