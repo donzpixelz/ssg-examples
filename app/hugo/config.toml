@@ -1,3 +1,17 @@
 baseURL = "/hugo/"
 title = "Hugo Site"
 languageCode = "en-us"
+
+[params]
+description = "Short site description"
+tagline = "Just another Hugo site"
+
+[menu]
+[[menu.main]]
+name = "Home"
+url = "/"
+weight = 1
+[[menu.main]]
+name = "Blog"
+url = "/posts/"
+weight = 2

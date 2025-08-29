@@ -1,0 +1,18 @@
+{{ define "main" }}
+<section class="list">
+    <h1>{{ .Title }}</h1>
+    {{ with .Content }}<div class="intro">{{ . }}</div>{{ end }}
+
+    <ul class="list-items">
+        {{ range .Paginator.Pages }}
+        <li>
+            <a href="{{ .RelPermalink }}"><strong>{{ .Title }}</strong></a>
+            {{ if .Date }} <small>— <time datetime="{{ .Date }}">{{ .Date.Format "Jan 2, 2006" }}</time></small>{{ end }}
+            {{ with .Summary }}<div class="summary">{{ . | plainify }}</div>{{ end }}
+        </li>
+        {{ end }}
+    </ul>
+
+    {{ template "_internal/pagination.html" . }}
+</section>
+{{ end }}

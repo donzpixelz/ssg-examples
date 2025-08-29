@@ -1,16 +1,19 @@
-<!doctype html>
-<html lang="en">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{ .Site.Title }}</title>
-<link rel="stylesheet" href="/css/main.css">
-<body>
-<main style="max-width:800px;margin:3rem auto;font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:0 1rem">
-    <h1 style="margin-top:0">{{ .Site.Title }}</h1>
-    <article class="content">
-        {{ .Content }}
-    </article>
-    <p style="margin-top:2rem"><a href="/">← Back to Home</a></p>
-</main>
-</body>
-</html>
+{{ define "main" }}
+<section class="home">
+    <h1>{{ .Site.Title }}</h1>
+    {{ with .Site.Params.description }}<p class="tagline">{{ . }}</p>{{ end }}
+
+    {{ $posts := where .Site.RegularPages "Section" "in" (slice "posts" "blog" "news") }}
+    {{ if gt (len $posts) 0 }}
+    <h2>Latest</h2>
+    <ul class="latest">
+        {{ range first 10 ($posts.ByDate.Reverse) }}
+        <li>
+            <a href="{{ .RelPermalink }}">{{ .Title }}</a>
+            {{ if .Date }}<small> — {{ .Date.Format "Jan 2, 2006" }}</small>{{ end }}
+        </li>
+        {{ end }}
+    </ul>
+    {{ end }}
+</section>
+{{ end }}
