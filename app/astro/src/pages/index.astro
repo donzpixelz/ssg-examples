@@ -8,17 +8,10 @@ const posts = (await Astro.glob('./posts/*.md'))
     .sort((a, b) => new Date(b.frontmatter.date) - new Date(a.frontmatter.date))
     .slice(0, 8);
 ---
-<BaseLayout
-        title="Astro Example · Home"
-        description="A meaningful Astro homepage: what Astro is, why you'd use it, and how this demo is set up."
->
+<BaseLayout title="Astro Example · Home" description="A meaningful Astro homepage: what Astro is, why you'd use it, and how this demo is set up.">
     <section class="card">
         <h1>Astro Example</h1>
-        <p>
-            <strong>Astro is a content-first static site builder</strong> that ships
-            <em> zero JavaScript by default</em> and only hydrates interactive
-            “islands” when you ask it to.
-        </p>
+        <p><strong>Astro is a content-first static site builder</strong> that ships <em>zero JavaScript by default</em> and only hydrates interactive “islands” when you ask it to.</p>
     </section>
 
     <section class="card">
@@ -41,19 +34,22 @@ const posts = (await Astro.glob('./posts/*.md'))
             <DigitalClock client:visible />
         </article>
 
-        <!-- Two equal columns -->
+        <!-- Two equal columns with identical inner padding and full-height divider -->
         <div class="react-grid">
-            <!-- Left: Analog -->
-            <article class="chip-card analog-cell">
-                <h3 class="text-light analog-head">Analog (React)</h3>
-                <div class="analog-wrap">
-                    <AnalogClock client:visible />
+            <article class="chip-card col">
+                <div class="col-inner">
+                    <h3 class="text-light col-title">Analog (React)</h3>
+                    <div class="analog-wrap">
+                        <AnalogClock client:visible />
+                    </div>
                 </div>
             </article>
 
-            <!-- Right: Date/Chip + Counter -->
-            <article class="chip-card counter-cell">
-                <Counter client:idle initial={0} />
+            <article class="chip-card col">
+                <div class="col-inner">
+                    <!-- Counter renders Date/Chip (top half) + Counter (bottom half) -->
+                    <Counter client:idle initial={0} />
+                </div>
             </article>
         </div>
     </section>
@@ -76,53 +72,52 @@ const posts = (await Astro.glob('./posts/*.md'))
 </BaseLayout>
 
 <style>
-    /* ---------- Proportional spacing scale ---------- */
+    /* ---- shared rhythm + sizes for perfect proportion ---- */
     .react-wrap{
         --rhythm: 12px;
         --gap-x: calc(var(--rhythm) * 1.5);
         --gap-y: calc(var(--rhythm) * 2);
         --colWidth: clamp(18rem, 46vw, 520px);
         --dividerColor: rgba(255,255,255,.35);
-        --rightLift: -20px; /* <— raise the entire right column by ~20px */
+        --colTopPad: 12px;          /* exact same top pad for BOTH columns */
+        --blockGap: calc(var(--rhythm) * 1); /* gap inside columns */
     }
 
     .react-title{ text-align:center; margin:0 0 calc(var(--rhythm) * 2) }
     .digital-block{ margin: calc(var(--rhythm) * 1.5) 0 calc(var(--rhythm) * 2.25); text-align:center }
 
-    /* 2-col grid with full-height center divider */
     .react-grid{
-        position: relative;
-        display: grid;
-        grid-template-columns: 1fr;
+        position:relative;
+        display:grid;
+        grid-template-columns:1fr;
         row-gap: var(--gap-y);
         column-gap: var(--gap-x);
-        align-items: stretch;
-        padding-bottom: var(--rhythm);
+        align-items:stretch;  /* force equal height */
     }
-    @media (min-width: 900px){
-        .react-grid{ grid-template-columns: 1fr 1fr; }
+    @media (min-width:900px){
+        .react-grid{ grid-template-columns:1fr 1fr }
         .react-grid::after{
             content:"";
             position:absolute;
-            left: 50%;
-            top: calc(var(--rhythm) * 0.5);
-            bottom: calc(var(--rhythm) * 0.5);
-            width: 2px;
-            transform: translateX(-1px);
-            background: var(--dividerColor);
-            border-radius: 2px;
+            left:50%;
+            top:0; bottom:0;                 /* FULL height of the grid area */
+            transform:translateX(-1px);
+            width:2px; border-radius:2px;
+            background:var(--dividerColor);
         }
     }
 
-    .analog-head{ text-align:center; margin: var(--rhythm) 0 var(--rhythm) }
-    .analog-wrap{ max-width: var(--colWidth); margin-inline:auto }
-
-    /* Right column: lift everything up by ~20px */
-    .counter-cell{
-        display:flex; justify-content:center; align-items:stretch;
-        margin-top: var(--rightLift);
+    /* IDENTICAL inner wrapper on both sides: this sets the top baseline */
+    .col-inner{
+        display:flex; flex-direction:column; height:100%;
+        padding-top: var(--colTopPad);
     }
 
+    /* Left side */
+    .col-title{ margin:0 0 var(--blockGap); text-align:center }
+    .analog-wrap{ max-width:var(--colWidth); margin-inline:auto }
+
+    /* a11y helper */
     .sr-only{
         position:absolute!important; width:1px; height:1px; padding:0; margin:-1px;
         overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
