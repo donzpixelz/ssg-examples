@@ -12,6 +12,11 @@ import ContactForm from '../components/ContactForm.jsx';
 import FilterList from '../components/FilterList.jsx';
 import SortableTableDemo from '../components/SortableTable.jsx';
 import ModalDemo from '../components/ModalDemo.jsx';
+import TabsDemo from '../components/TabsDemo.jsx';
+import AccordionDemo from '../components/AccordionDemo.jsx';
+import ToastDemo from '../components/ToastDemo.jsx';
+import PaginationDemo from '../components/PaginationDemo.jsx';
+
 
 ---
 <BaseLayout title="Astro Example · Home" description="React clocks and counter with proportional layout.">
@@ -56,6 +61,49 @@ import ModalDemo from '../components/ModalDemo.jsx';
             <div class="v-divider" role="presentation"></div>
         </div>
     </section>
+    <br><br>
+    <section class="card card--green">
+        <h2 class="text-light center">Common UI Patterns</h2>
+
+        <div class="grid">
+            <article class="util">
+                <h3 class="text-light">Tabs</h3>
+                <TabsDemo client:visible />
+            </article>
+
+            <article class="util">
+                <h3 class="text-light">Accordion</h3>
+                <AccordionDemo client:visible />
+            </article>
+
+            <article class="util">
+                <h3 class="text-light">Toasts</h3>
+                <ToastDemo client:visible />
+            </article>
+
+            <article class="util">
+                <h3 class="text-light">Pagination</h3>
+                <PaginationDemo client:visible />
+            </article>
+        </div>
+    </section>
+
+    <style>
+        .card--green{
+            background:#16a34a; /* Tailwind green-600 */
+            color:#fff;
+            border:1.5px solid rgba(255,255,255,.95);
+            border-radius:10px;
+            box-shadow:0 0 0 2px rgba(255,255,255,.12) inset, 0 10px 28px rgba(0,0,0,.25);
+            padding:1.2rem;
+            margin-top:2rem;
+        }
+        .center{ text-align:center }
+        .grid{ display:grid; grid-template-columns:1fr; gap:1.5rem }
+        @media (min-width:900px){ .grid{ grid-template-columns:1fr 1fr } }
+        .util h3{ margin-bottom:.5rem; text-align:center }
+    </style>
+
     <!-- === New React Utilities Panel ====================================== -->
     <section class="card card--chip utils-wrap">
         <h2 class="text-light utils-title">React Utilities</h2>
