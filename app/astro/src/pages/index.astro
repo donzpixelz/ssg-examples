@@ -8,6 +8,10 @@ import Stopwatch from '../components/Stopwatch.jsx';
 import Pomodoro from '../components/Pomodoro.jsx';
 import TipCalc from '../components/TipCalc.jsx';
 import ProgressRingDemo from '../components/ProgressRing.jsx';
+import ContactForm from '../components/ContactForm.jsx';
+import FilterList from '../components/FilterList.jsx';
+import SortableTableDemo from '../components/SortableTable.jsx';
+import ModalDemo from '../components/ModalDemo.jsx';
 
 ---
 <BaseLayout title="Astro Example · Home" description="React clocks and counter with proportional layout.">
@@ -78,6 +82,46 @@ import ProgressRingDemo from '../components/ProgressRing.jsx';
             </article>
         </div>
     </section>
+    <!-- === Practical React Patterns ======================================= -->
+    <section class="card card--chip patterns-wrap">
+        <h2 class="text-light patterns-title">React Patterns</h2>
+
+        <div class="patterns-grid">
+            <article class="chip-card pat">
+                <h3 class="text-light pat-head">Contact Form</h3>
+                <ContactForm client:visible />
+            </article>
+
+            <article class="chip-card pat">
+                <h3 class="text-light pat-head">Filterable List</h3>
+                <FilterList client:visible />
+            </article>
+
+            <article class="chip-card pat">
+                <h3 class="text-light pat-head">Sortable Table</h3>
+                <SortableTableDemo client:visible />
+            </article>
+
+            <article class="chip-card pat">
+                <h3 class="text-light pat-head">Modal</h3>
+                <ModalDemo client:visible />
+            </article>
+        </div>
+    </section>
+
+    <style>
+        .patterns-wrap{ --gap: clamp(12px, 2vw, 18px) }
+        .patterns-title{ text-align:center; margin: 0 0 1.5rem }
+        .patterns-grid{
+            display:grid; grid-template-columns:1fr; gap: var(--gap);
+        }
+        @media (min-width:900px){
+            .patterns-grid{ grid-template-columns:1fr 1fr; }
+        }
+        .pat{ padding:16px }
+        .pat-head{ margin:0 0 10px; text-align:center }
+    </style>
+
 
     <style>
         .utils-wrap{
